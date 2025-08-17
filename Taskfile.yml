@@ -1,0 +1,17 @@
+version: "3"
+
+vars:
+  IMAGE_NAME: gracefulapp:latest
+
+tasks:
+  minikube-start:
+    cmds:
+      - minikube start --kubernetes-version=v1.24.17
+
+  docker-build:
+    cmds:
+      - cd cmd/gracefulapp/ && docker build --platform linux/amd64 -t {{.IMAGE_NAME}} .
+
+  docker-run:
+    cmds:
+      - docker run -it {{.IMAGE_NAME}}
