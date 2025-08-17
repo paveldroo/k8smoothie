@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: gracefulapp
+  name: gracefulapp
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gracefulapp
+  strategy: {}
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: gracefulapp
+    spec:
+      terminationGracePeriodSeconds: 240
+      containers:
+      - image: gracefulapp:latest
+        name: gracefulapp
+        resources: {}
+        imagePullPolicy: Never
+status: {}

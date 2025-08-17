@@ -10,8 +10,13 @@ tasks:
 
   docker-build:
     cmds:
-      - cd cmd/gracefulapp/ && docker build --platform linux/amd64 -t {{.IMAGE_NAME}} .
+      - eval $(minikube docker-env) && cd cmd/gracefulapp/ && docker build --platform linux/amd64 -t {{.IMAGE_NAME}} .
 
   docker-run:
     cmds:
       - docker run -it {{.IMAGE_NAME}}
+
+  deploy:
+    cmds:
+      - kubectl config use-context minikube
+      - kubectl apply -f ./cmd/gracefulapp/deployment.yaml
