@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: max-pods
+  namespace: default
+spec:
+  hard:
+    pods: 15

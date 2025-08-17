@@ -19,4 +19,5 @@ tasks:
   deploy:
     cmds:
       - kubectl config use-context minikube
-      - kubectl apply -f ./cmd/gracefulapp/deployment.yaml
+      - kubectl apply -f .deploy/resource_quota.yaml
+      - kubectl apply -f .deploy/deployment.yaml
