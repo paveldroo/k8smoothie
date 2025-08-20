@@ -26,8 +26,13 @@ type Metadata struct {
 	DeletionTimestamp *time.Time `json:"deletionTimestamp"`
 }
 
+type PodStatus struct {
+	Phase string `json:"phase"`
+}
+
 type Pod struct {
-	Metadata Metadata `json:"metadata"`
+	Metadata Metadata  `json:"metadata"`
+	Status   PodStatus `json:"status"`
 }
 
 type Pods struct {

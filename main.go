@@ -58,14 +58,26 @@ func main() {
 		}
 
 		terminating := false
+		error := false
 		for _, p := range pods.Items {
 			if p.Metadata.DeletionTimestamp != nil {
 				terminating = true
 			}
+
+			switch p.Status.Phase {
+			case "Running", "Succeeded":
+			default:
+				error = true
+			}
+		}
+
+		if error == true {
+			fmt.Println("💥 ooops, something wrong with deploy, you should check manually")
+			os.Exit(exitCode)
 		}
 
 		if terminating == false {
-			fmt.Print("🥾 no terminating pods were found, let's kick the deployment a little")
+			fmt.Println("🥾 no terminating pods were found, let's kick the deployment a little")
 			if err := kickDeploy(namespace, deploymentName); err != nil {
 				fmt.Printf("🙈 annotate deployment: %s\n", err.Error())
 				os.Exit(exitCode)

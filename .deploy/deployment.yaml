@@ -25,7 +25,7 @@ spec:
     spec:
       terminationGracePeriodSeconds: 60
       containers:
-      - image: gracefulapp:latest
+      - image: gracefulapp112312:latest
         name: gracefulapp
         resources: {}
         imagePullPolicy: Never
