@@ -21,7 +21,7 @@ spec:
       creationTimestamp: null
       labels:
         app: gracefulapp
-        version: "1.17"
+        version: "1.18"
     spec:
       terminationGracePeriodSeconds: 60
       containers:

@@ -21,3 +21,7 @@ tasks:
       - kubectl config use-context minikube
       - kubectl apply -f .deploy/resource_quota.yaml
       - kubectl apply -f .deploy/deployment.yaml
+
+  run:
+    cmds:
+      - go run main.go -namespace=default -deployment=gracefulapp
