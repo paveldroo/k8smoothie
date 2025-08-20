@@ -7,4 +7,5 @@ WIP
 - [x] Reproduce k8s replicaset freezing with long graceful shutdowns
 - [x] Research a changes to apply to deployment without creating new replicaset
 - [x] Write a program to wake up replica set when previous pods already terminated but new pods still not created
-- [ ] Add CLI arguments parsing
+- [x] Add CLI arguments parsing
+- [x] Add deploy errors check
