@@ -29,6 +29,8 @@ func main() {
 	namespace := *nsFlag
 	deploymentName := *dnFlag
 
+	fmt.Printf("Starting with envs: namespace=%s, deployment=%s, error-exit-code=%d\n", namespace, deploymentName, exitCode)
+
 	ticker := time.NewTicker(2 * time.Second)
 
 	for {
