@@ -25,3 +25,7 @@ tasks:
   run:
     cmds:
       - go run main.go -namespace=default -deployment=gracefulapp
+
+  build:
+    cmds:
+      - GOOS=linux GOARCH=amd64 go build -o k8smoothie-linux-amd64
