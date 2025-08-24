@@ -36,7 +36,7 @@ This library monitors deployments and ReplicaSets, detects when pods are fully t
 - 🚀 Automatically "nudges" deployment to trigger new pod scheduling
 - ⚙️ Designed for CI/CD usage — integrates seamlessly into pipelines to ensure reliable, automated rollouts without manual intervention
 - 🖖 But you may use it manually
-- 🔄 Works with Helm, Argo Rollouts, Flux, and native Kubernetes Deployments
+- 🔄 Tested against Helm and native Kubernetes Deployments
 
 ### CLI Usage with Flags
 
