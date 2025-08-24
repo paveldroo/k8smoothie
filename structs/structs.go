@@ -2,8 +2,21 @@ package structs
 
 import "time"
 
+type AppLabel struct {
+	AppName string `json:"app"`
+}
+
+type Metadata struct {
+	Labels AppLabel `json:"labels"`
+}
+
+type Template struct {
+	Metadata Metadata `json:"metadata"`
+}
+
 type Spec struct {
-	Replicas int `json:"replicas"`
+	Replicas int      `json:"replicas"`
+	Template Template `json:"template"`
 }
 
 type Deployment struct {
@@ -11,7 +24,8 @@ type Deployment struct {
 }
 
 type Status struct {
-	AvailableReplicas int `json:"availableReplicas"`
+	AvailableReplicas int   `json:"availableReplicas"`
+	Conditions        []any `json:"conditions"`
 }
 
 type ReplicaSet struct {
@@ -22,7 +36,7 @@ type ReplicaSets struct {
 	Items []ReplicaSet `json:"items"`
 }
 
-type Metadata struct {
+type PodMetadata struct {
 	DeletionTimestamp *time.Time `json:"deletionTimestamp"`
 }
 
@@ -31,8 +45,8 @@ type PodStatus struct {
 }
 
 type Pod struct {
-	Metadata Metadata  `json:"metadata"`
-	Status   PodStatus `json:"status"`
+	Metadata PodMetadata `json:"metadata"`
+	Status   PodStatus   `json:"status"`
 }
 
 type Pods struct {

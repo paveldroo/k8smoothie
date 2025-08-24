@@ -21,11 +21,11 @@ spec:
       creationTimestamp: null
       labels:
         app: gracefulapp
-        version: "1.18"
+        version: "1.23"
     spec:
       terminationGracePeriodSeconds: 60
       containers:
-      - image: gracefulapp112312:latest
+      - image: gracefulapp:latest
         name: gracefulapp
         resources: {}
         imagePullPolicy: Never

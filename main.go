@@ -29,31 +29,31 @@ func main() {
 	namespace := *nsFlag
 	deploymentName := *dnFlag
 
-	fmt.Printf("🧋 Starting k8smoothie with envs: namespace=%s, deployment=%s, error-exit-code=%d\n", namespace, deploymentName, exitCode)
+	fmt.Printf("🧋 Starting k8smoothie with args: namespace=%s, deployment=%s, error-exit-code=%d\n", namespace, deploymentName, exitCode)
 
 	ticker := time.NewTicker(2 * time.Second)
 
 	for {
 		<-ticker.C
 
-		deployment, err := deployment(namespace, deploymentName)
+		deploy, err := deployment(namespace, deploymentName)
 		if err != nil {
 			fmt.Printf("🙈 get deployment: %s\n", err.Error())
 			os.Exit(exitCode)
 		}
 
-		currentReplicaSet, err := currentReplicaSet(namespace, deploymentName)
+		currentReplicaSet, err := currentReplicaSet(namespace, deploy)
 		if err != nil {
 			fmt.Printf("🙈 get replicaset: %s\n", err.Error())
 			os.Exit(exitCode)
 		}
 
-		if currentReplicaSet.Status.AvailableReplicas == deployment.Spec.Replicas {
-			fmt.Printf("🎉🎉🎉 %d of %d pods deployed, task successfully finished!\n", currentReplicaSet.Status.AvailableReplicas, deployment.Spec.Replicas)
+		if currentReplicaSet.Status.AvailableReplicas == deploy.Spec.Replicas {
+			fmt.Printf("🎉🎉🎉 %d of %d pods deployed, task successfully finished!\n", currentReplicaSet.Status.AvailableReplicas, deploy.Spec.Replicas)
 			break
 		}
 
-		pods, err := pods(namespace, deploymentName)
+		pods, err := pods(namespace, deploy)
 		if err != nil {
 			fmt.Printf("🙈 get pod: %s\n", err.Error())
 			os.Exit(exitCode)
@@ -84,13 +84,15 @@ func main() {
 				fmt.Printf("🙈 annotate deployment: %s\n", err.Error())
 				os.Exit(exitCode)
 			}
+
+			continue
 		}
 
-		fmt.Printf("⏳ %d of %d pods deployed, task still in progress...\n", currentReplicaSet.Status.AvailableReplicas, deployment.Spec.Replicas)
+		fmt.Printf("⏳ %d of %d pods deployed, task still in progress...\n", currentReplicaSet.Status.AvailableReplicas, deploy.Spec.Replicas)
 	}
 }
 
-func deployment(ns, dn string) (structs.Deployment, error) {
+func deployment(ns string, dn string) (structs.Deployment, error) {
 	deploymentCmd := exec.Command("kubectl", "-n", ns, "get", "deployment", dn, "-o", "json")
 	output, err := deploymentCmd.Output()
 	if err != nil {
@@ -109,8 +111,8 @@ func deployment(ns, dn string) (structs.Deployment, error) {
 	return deployment, nil
 }
 
-func currentReplicaSet(ns, dn string) (structs.ReplicaSet, error) {
-	replicaSetCmd := exec.Command("kubectl", "-n", ns, "get", "replicaset", "--sort-by=.metadata.creationTimestamp", "-o", "json", "-l", "app="+dn)
+func currentReplicaSet(ns string, deploy structs.Deployment) (structs.ReplicaSet, error) {
+	replicaSetCmd := exec.Command("kubectl", "-n", ns, "get", "replicaset", "-o", "json", "-l", "app="+deploy.Spec.Template.Metadata.Labels.AppName)
 	output, err := replicaSetCmd.Output()
 	if err != nil {
 		return structs.ReplicaSet{}, fmt.Errorf("exec command: %w", err)
@@ -125,11 +127,26 @@ func currentReplicaSet(ns, dn string) (structs.ReplicaSet, error) {
 		return structs.ReplicaSet{}, errors.ErrNoReplicaSetsFound
 	}
 
-	return r.Items[len(r.Items)-1], nil
+	// find first resplicaset in progressing status
+	for _, rs := range r.Items {
+		if len(rs.Status.Conditions) != 0 {
+			return rs, nil
+		}
+	}
+
+	// if ew can't find active replicaset it means we're done, find replicaset with max replicas
+	maxReplicaSet := r.Items[0]
+	for _, rs := range r.Items {
+		if rs.Status.AvailableReplicas > maxReplicaSet.Status.AvailableReplicas {
+			maxReplicaSet = rs
+		}
+	}
+
+	return maxReplicaSet, nil
 }
 
-func pods(ns, dn string) (structs.Pods, error) {
-	podstCmd := exec.Command("kubectl", "-n", ns, "get", "pod", "-o", "json", "-l", "app="+dn)
+func pods(ns string, deploy structs.Deployment) (structs.Pods, error) {
+	podstCmd := exec.Command("kubectl", "-n", ns, "get", "pod", "-o", "json", "-l", "app="+deploy.Spec.Template.Metadata.Labels.AppName)
 	output, err := podstCmd.Output()
 	if err != nil {
 		return structs.Pods{}, fmt.Errorf("exec command: %w", err)
