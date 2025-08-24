@@ -64,6 +64,7 @@ func main() {
 
 		terminating := false
 		error := false
+		pending := false
 		for _, p := range pods.Items {
 			if p.Metadata.DeletionTimestamp != nil {
 				terminating = true
@@ -72,7 +73,7 @@ func main() {
 			switch p.Status.Phase {
 			case "Running", "Succeeded":
 			case "Pending":
-				fmt.Println("🤔 one of the pods in Pending status, if it takes too long - you'd better check it out")
+				pending = true
 			default:
 				error = true
 			}
@@ -81,6 +82,11 @@ func main() {
 		if error == true {
 			fmt.Println("💥 ooops, something wrong with deploy, you should check manually")
 			os.Exit(exitCode)
+		}
+
+		if pending == true {
+			fmt.Println("🤔 one of the pods in Pending status, if it takes too long - you'd better check it out")
+			continue
 		}
 
 		if terminating == false {
