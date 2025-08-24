@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/paveldroo/k8smoothie/errors"
@@ -44,7 +45,7 @@ func main() {
 			os.Exit(exitCode)
 		}
 
-		currentReplicaSet, err := currentReplicaSet(namespace, deploy)
+		currentReplicaSet, err := currentReplicaSet(namespace, deploymentName)
 		if err != nil {
 			fmt.Printf("🙈 get replicaset: %s\n", err.Error())
 			os.Exit(exitCode)
@@ -55,7 +56,7 @@ func main() {
 			break
 		}
 
-		pods, err := pods(namespace, deploy)
+		pods, err := pods(namespace, deploymentName)
 		if err != nil {
 			fmt.Printf("🙈 get pod: %s\n", err.Error())
 			os.Exit(exitCode)
@@ -113,8 +114,8 @@ func deployment(ns string, dn string) (structs.Deployment, error) {
 	return deployment, nil
 }
 
-func currentReplicaSet(ns string, deploy structs.Deployment) (structs.ReplicaSet, error) {
-	replicaSetCmd := exec.Command("kubectl", "-n", ns, "get", "replicaset", "-o", "json", "-l", "app="+deploy.Spec.Template.Metadata.Labels.AppName)
+func currentReplicaSet(ns, deployName string) (structs.ReplicaSet, error) {
+	replicaSetCmd := exec.Command("kubectl", "-n", ns, "get", "replicaset", "-o", "json")
 	output, err := replicaSetCmd.Output()
 	if err != nil {
 		return structs.ReplicaSet{}, fmt.Errorf("exec command: %w", err)
@@ -124,6 +125,16 @@ func currentReplicaSet(ns string, deploy structs.Deployment) (structs.ReplicaSet
 	if err := json.Unmarshal(output, &r); err != nil {
 		return structs.ReplicaSet{}, fmt.Errorf("unmarshal replicasets: %w", err)
 	}
+
+	// filter by current deployment name
+	items := make([]structs.ReplicaSet, 0, len(r.Items))
+	for _, rs := range r.Items {
+		if strings.HasPrefix(rs.Metadata.Name, deployName) {
+			items = append(items, rs)
+		}
+	}
+
+	r.Items = items
 
 	if len(r.Items) == 0 {
 		return structs.ReplicaSet{}, errors.ErrNoReplicaSetsFound
@@ -147,8 +158,8 @@ func currentReplicaSet(ns string, deploy structs.Deployment) (structs.ReplicaSet
 	return maxReplicaSet, nil
 }
 
-func pods(ns string, deploy structs.Deployment) (structs.Pods, error) {
-	podstCmd := exec.Command("kubectl", "-n", ns, "get", "pod", "-o", "json", "-l", "app="+deploy.Spec.Template.Metadata.Labels.AppName)
+func pods(ns, deployName string) (structs.Pods, error) {
+	podstCmd := exec.Command("kubectl", "-n", ns, "get", "pod", "-o", "json")
 	output, err := podstCmd.Output()
 	if err != nil {
 		return structs.Pods{}, fmt.Errorf("exec command: %w", err)
@@ -157,6 +168,20 @@ func pods(ns string, deploy structs.Deployment) (structs.Pods, error) {
 	p := structs.Pods{}
 	if err := json.Unmarshal(output, &p); err != nil {
 		return structs.Pods{}, fmt.Errorf("unmarshal pods: %w", err)
+	}
+
+	// filter by current deployment name
+	items := make([]structs.Pod, 0, len(p.Items))
+	for _, pod := range p.Items {
+		if strings.HasPrefix(pod.Metadata.Name, deployName) {
+			items = append(items, pod)
+		}
+	}
+
+	p.Items = items
+
+	if len(p.Items) == 0 {
+		return structs.Pods{}, errors.ErrNoPodsFound
 	}
 
 	return p, nil
