@@ -15,10 +15,12 @@ import (
 func main() {
 	nsFlag := flag.String("namespace", "", "namespace")
 	dnFlag := flag.String("deployment", "", "deployment")
+	delayFlag := flag.Int("frequaency", 2, "frequency")
 	exitFlag := flag.Int("error-exit-code", 1, "error-exit-code")
 
 	flag.Parse()
 
+	delay := *delayFlag
 	exitCode := *exitFlag
 
 	if *nsFlag == "" || *dnFlag == "" {
@@ -29,9 +31,9 @@ func main() {
 	namespace := *nsFlag
 	deploymentName := *dnFlag
 
-	fmt.Printf("🧋 Starting k8smoothie with args: namespace=%s, deployment=%s, error-exit-code=%d\n", namespace, deploymentName, exitCode)
+	fmt.Printf("🧋 Starting k8smoothie with args: namespace=%s, deployment=%s, delay=%d, error-exit-code=%d\n", namespace, deploymentName, delay, exitCode)
 
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(time.Duration(delay) * time.Second)
 
 	for {
 		<-ticker.C
