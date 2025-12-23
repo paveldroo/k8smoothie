@@ -6,10 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/signal"
-	"runtime/debug"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/paveldroo/k8smoothie/errors"
@@ -17,17 +14,9 @@ import (
 )
 
 func main() {
-	defer func() {
-		if r := recover(); r != nil {
-			fmt.Printf("💥 PANIC: %v\n", r)
-			debug.PrintStack()
-			os.Exit(0)
-		}
-	}()
-
 	nsFlag := flag.String("namespace", "", "namespace")
 	dnFlag := flag.String("deployment", "", "deployment")
-	delayFlag := flag.Int("frequency", 3, "frequency")
+	delayFlag := flag.Int("frequency", 5, "frequency")
 	exitFlag := flag.Int("error-exit-code", 1, "error-exit-code")
 
 	flag.Parse()
@@ -45,35 +34,22 @@ func main() {
 
 	fmt.Printf("🧋 Starting k8smoothie with args: namespace=%s, deployment=%s, delay=%d, error-exit-code=%d\n", namespace, deploymentName, delay, exitCode)
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-
-	go func() {
-		sig := <-sigChan
-		fmt.Printf("🛑 Received signal: %v, exiting...\n", sig)
-		os.Exit(exitCode)
-	}()
-
 	ticker := time.NewTicker(time.Duration(delay) * time.Second)
 
 	for {
-		fmt.Println("🔄🔄🔄🔄 Starting new iteration...")
 		<-ticker.C
-		fmt.Println("⏰ Ticker fired, checking deployment status...")
 
 		deploy, err := deployment(namespace, deploymentName)
 		if err != nil {
 			fmt.Printf("🙈 get deployment: %s\n", err.Error())
 			os.Exit(exitCode)
 		}
-		fmt.Printf("📊 Deployment replicas: desired=%d\n", deploy.Spec.Replicas)
 
 		currentReplicaSet, err := currentReplicaSet(namespace, deploymentName)
 		if err != nil {
 			fmt.Printf("🙈 get replicaset: %s\n", err.Error())
 			os.Exit(exitCode)
 		}
-		fmt.Printf("📊 Current replicaset: available=%d\n", currentReplicaSet.Status.AvailableReplicas)
 
 		if currentReplicaSet.Status.AvailableReplicas == deploy.Spec.Replicas {
 			fmt.Printf("🎉🎉🎉 %d of %d pods deployed, task successfully finished!\n", currentReplicaSet.Status.AvailableReplicas, deploy.Spec.Replicas)
@@ -85,7 +61,6 @@ func main() {
 			fmt.Printf("🙈 get pod: %s\n", err.Error())
 			os.Exit(exitCode)
 		}
-		fmt.Printf("📊 Pods: count=%d\n", len(pods.Items))
 
 		terminating := false
 		error := false
@@ -123,7 +98,6 @@ func main() {
 		}
 
 		fmt.Printf("⏳ %d of %d pods deployed, task still in progress...\n", currentReplicaSet.Status.AvailableReplicas, deploy.Spec.Replicas)
-		fmt.Println("✅✅✅✅ Finished iteration, we're going to the next round...")
 		os.Stdout.Sync()
 	}
 }
