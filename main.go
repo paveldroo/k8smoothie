@@ -27,7 +27,7 @@ func main() {
 
 	nsFlag := flag.String("namespace", "", "namespace")
 	dnFlag := flag.String("deployment", "", "deployment")
-	delayFlag := flag.Int("frequaency", 3, "frequency")
+	delayFlag := flag.Int("frequency", 3, "frequency")
 	exitFlag := flag.Int("error-exit-code", 1, "error-exit-code")
 
 	flag.Parse()
