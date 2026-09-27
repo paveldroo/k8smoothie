@@ -11,8 +11,12 @@ tasks:
       - minikube start --kubernetes-version=v1.24.17
 
   docker-build:
+    vars:
+      ARCH:
+        sh: kubectl --context minikube get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}'
     cmds:
-      - eval $(minikube docker-env) && cd cmd/gracefulapp/ && docker build --platform linux/amd64 -t {{.IMAGE_NAME}} .
+      - cd cmd/gracefulapp && CGO_ENABLED=0 GOOS=linux GOARCH={{.ARCH}} go build -o gracefulapp .
+      - eval $(minikube docker-env) && cd cmd/gracefulapp && docker build --platform linux/{{.ARCH}} -t {{.IMAGE_NAME}} .
 
   docker-run:
     cmds:

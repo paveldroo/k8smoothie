@@ -35,3 +35,4 @@ go.work.sum
 # OS/tooling
 .DS_Store
 .tclaude-docker.status
+cmd/gracefulapp/gracefulapp

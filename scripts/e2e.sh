@@ -151,7 +151,7 @@ cases_rollout() {
 cases_crashloop() {
 	log "CrashLoopBackOff in $HEAVY"
 	k patch deployment "$HEAVY" --type=json \
-		-p '[{"op":"add","path":"/spec/template/spec/containers/0/command","value":["sh","-c","exit 1"]}]' >/dev/null
+		-p '[{"op":"add","path":"/spec/template/spec/containers/0/env","value":[{"name":"CRASH","value":"1"}]}]' >/dev/null
 	run_case "crashloop fails with error-exit-code" 1 "💥 $HEAVY:" "CrashLoopBackOff" "✅ $MAIN:" -- \
 		-namespace="$NS" -helm-release="$RELEASE" -frequency="$FREQ" -timeout=5m
 	run_case "crashloop log-only with error-exit-code=0" 0 "💥 $HEAVY:" "CrashLoopBackOff" -- \

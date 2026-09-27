@@ -1,8 +1,5 @@
-FROM golang:1.24
+FROM scratch
 
-WORKDIR /app/
-COPY main.go /app/
-
-RUN go build -o /app/gracefulapp /app/main.go
+COPY gracefulapp /app/gracefulapp
 
 ENTRYPOINT [ "/app/gracefulapp" ]

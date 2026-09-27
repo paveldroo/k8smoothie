@@ -10,6 +10,10 @@ import (
 
 func main() {
 	fmt.Println("Starting app...")
+	if os.Getenv("CRASH") != "" {
+		fmt.Println("CRASH is set, exiting")
+		os.Exit(1)
+	}
 	shutdown := make(chan struct{})
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
