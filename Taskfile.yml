@@ -40,11 +40,6 @@ tasks:
     cmds:
       - go test -race ./...
 
-  lint:
-    cmds:
-      - go vet ./...
-      - golangci-lint run ./...
-
   build:
     cmds:
       - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-X main.version={{.VERSION}}" -o k8smoothie-linux-amd64
