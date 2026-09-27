@@ -31,3 +31,8 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# OS/tooling
+.DS_Store
+.tclaude-docker.status
+cmd/gracefulapp/gracefulapp

@@ -2,6 +2,8 @@ version: "3"
 
 vars:
   IMAGE_NAME: gracefulapp:latest
+  VERSION:
+    sh: git describe --tags --always --dirty
 
 tasks:
   minikube-start:
@@ -9,8 +11,12 @@ tasks:
       - minikube start --kubernetes-version=v1.24.17
 
   docker-build:
+    vars:
+      ARCH:
+        sh: kubectl --context minikube get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}'
     cmds:
-      - eval $(minikube docker-env) && cd cmd/gracefulapp/ && docker build --platform linux/amd64 -t {{.IMAGE_NAME}} .
+      - cd cmd/gracefulapp && CGO_ENABLED=0 GOOS=linux GOARCH={{.ARCH}} go build -o gracefulapp .
+      - eval $(minikube docker-env) && cd cmd/gracefulapp && docker build --platform linux/{{.ARCH}} -t {{.IMAGE_NAME}} .
 
   docker-run:
     cmds:
@@ -24,8 +30,20 @@ tasks:
 
   run:
     cmds:
-      - go run main.go -namespace=default -deployment=gracefulapp
+      - go run . -namespace=default -deployment=gracefulapp
+
+  run-release:
+    cmds:
+      - go run . -namespace=default -helm-release=gracefulapp
+
+  test:
+    cmds:
+      - go test -race ./...
 
   build:
     cmds:
-      - GOOS=linux GOARCH=amd64 go build -o k8smoothie-linux-amd64
+      - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-X main.version={{.VERSION}}" -o k8smoothie-linux-amd64
+
+  e2e:
+    cmds:
+      - ./scripts/e2e.sh

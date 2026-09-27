@@ -5,4 +5,4 @@ metadata:
   namespace: default
 spec:
   hard:
-    pods: 5
+    pods: 7
