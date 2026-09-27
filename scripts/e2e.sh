@@ -128,6 +128,15 @@ cases_idle() {
 	log "already rolled out"
 	run_case "helm-release idle" 0 "✅ $MAIN:" "✅ $HEAVY:" -- -namespace="$NS" -helm-release="$RELEASE" -timeout=1m
 	run_case "explicit idle, two names" 0 "✅ $MAIN:" "✅ $HEAVY:" -- -namespace="$NS" -deployment="$MAIN, $HEAVY" -timeout=1m
+	k annotate deployment "$HEAVY" meta.helm.sh/release-namespace=e2e-other --overwrite >/dev/null
+	local name="helm-release skips other release-namespace"
+	run_case "$name" 0 "✅ $MAIN:" -- -namespace="$NS" -helm-release="$RELEASE" -timeout=1m
+	if grep -qF "$HEAVY" "$(logfile "$name")"; then
+		fail "$name: $HEAVY not watched" "$HEAVY picked up despite foreign release-namespace" "$(logfile "$name")"
+	else
+		pass "$name: $HEAVY not watched"
+	fi
+	k annotate deployment "$HEAVY" meta.helm.sh/release-namespace="$NS" --overwrite >/dev/null
 }
 
 cases_rollout() {
@@ -136,7 +145,14 @@ cases_rollout() {
 	local name="helm-release rollout under quota"
 	run_case "$name" 0 "✅ $MAIN:" "✅ $HEAVY:" "all deployments rolled out" -- \
 		-namespace="$NS" -helm-release="$RELEASE" -frequency="$FREQ" -timeout="$ROLLOUT_TIMEOUT"
-	printf '     kicks: %s\n' "$(grep -c '🥾' "$(logfile "$name")")"
+	local kicks
+	kicks=$(grep -c '🥾' "$(logfile "$name")")
+	printf '     kicks: %s (while other pods terminating: %s)\n' "$kicks" "$(grep '🥾' "$(logfile "$name")" | grep -c terminating)"
+	if [ "$kicks" -gt 0 ]; then
+		pass "quota-blocked rollout was kicked"
+	else
+		fail "quota-blocked rollout was kicked" "no 🥾 in log; quota never blocked pod creation?" "$(logfile "$name")"
+	fi
 	if k rollout status deployment/"$MAIN" --timeout=10s >/dev/null && k rollout status deployment/"$HEAVY" --timeout=10s >/dev/null; then
 		pass "kubectl agrees rollout is complete"
 	else
