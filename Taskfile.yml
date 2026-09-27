@@ -2,6 +2,8 @@ version: "3"
 
 vars:
   IMAGE_NAME: gracefulapp:latest
+  VERSION:
+    sh: git describe --tags --always --dirty
 
 tasks:
   minikube-start:
@@ -24,8 +26,21 @@ tasks:
 
   run:
     cmds:
-      - go run main.go -namespace=default -deployment=gracefulapp
+      - go run . -namespace=default -deployment=gracefulapp
+
+  run-release:
+    cmds:
+      - go run . -namespace=default -helm-release=gracefulapp
+
+  test:
+    cmds:
+      - go test -race ./...
+
+  lint:
+    cmds:
+      - go vet ./...
+      - if command -v golangci-lint >/dev/null 2>&1; then golangci-lint run ./...; else echo "golangci-lint not found, skipping"; fi
 
   build:
     cmds:
-      - GOOS=linux GOARCH=amd64 go build -o k8smoothie-linux-amd64
+      - GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version={{.VERSION}}" -o k8smoothie-linux-amd64
