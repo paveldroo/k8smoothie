@@ -71,6 +71,7 @@ type Watcher struct {
 	Frequency    time.Duration
 	KickInterval time.Duration
 	Out          io.Writer
+	prefixed     bool
 }
 
 // WaitAll watches every named Deployment concurrently and returns results in input order.
@@ -80,6 +81,7 @@ func (w Watcher) WaitAll(ctx context.Context, names []string) []Result {
 		r Result
 	}
 	w.Out = &syncWriter{w: w.Out}
+	w.prefixed = len(names) > 1
 	ch := make(chan indexed, len(names))
 	for i, name := range names {
 		go func() {
@@ -103,7 +105,11 @@ func (w Watcher) Watch(ctx context.Context, name string) Result {
 	if out == nil {
 		out = io.Discard
 	}
-	logger := log.New(out, "["+name+"] ", log.Ltime)
+	prefix := ""
+	if w.prefixed {
+		prefix = "[" + name + "] "
+	}
+	logger := log.New(out, prefix, log.Ltime)
 	start := time.Now()
 	finish := func(s Status, reason string) Result {
 		logger.Printf("%s %s: %s", s.Emoji(), s, reason)

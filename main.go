@@ -75,8 +75,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, client ku
 		}
 	}
 
-	fmt.Fprintf(stdout, "🧋 k8smoothie %s: namespace=%s, deployments=%s, timeout=%s, frequency=%s, error-exit-code=%d\n",
-		version, cfg.namespace, strings.Join(targets, ","), timeoutString(cfg.timeout), cfg.frequency, cfg.errorExitCode)
+	fmt.Fprintf(stdout, "🧋 k8smoothie: namespace=%s, deployments=%s, timeout=%s, frequency=%s, error-exit-code=%d\n",
+		cfg.namespace, strings.Join(targets, ","), timeoutString(cfg.timeout), cfg.frequency, cfg.errorExitCode)
 
 	w := rollout.Watcher{Client: client, Namespace: cfg.namespace, Frequency: cfg.frequency, KickInterval: kickInterval, Out: stdout}
 	results := w.WaitAll(ctx, targets)
