@@ -13,21 +13,24 @@ import (
 )
 
 type snapshot struct {
-	d    kube.Deployment
-	rs   []kube.ReplicaSet
-	pods []kube.Pod
-	err  error
+	d       kube.Deployment
+	rs      []kube.ReplicaSet
+	pods    []kube.Pod
+	err     error
+	listErr error
 }
 
 type fakeClient struct {
-	mu    sync.Mutex
-	steps map[string][]snapshot
-	pos   map[string]int
-	kicks map[string]int
+	mu          sync.Mutex
+	steps       map[string][]snapshot
+	pos         map[string]int
+	kicks       map[string]int
+	kickValues  map[string]bool
+	annotateErr error
 }
 
 func newFake(steps map[string][]snapshot) *fakeClient {
-	return &fakeClient{steps: steps, pos: map[string]int{}, kicks: map[string]int{}}
+	return &fakeClient{steps: steps, pos: map[string]int{}, kicks: map[string]int{}, kickValues: map[string]bool{}}
 }
 
 func (f *fakeClient) current(name string) snapshot {
@@ -56,7 +59,8 @@ func (f *fakeClient) ListDeployments(context.Context, string) ([]kube.Deployment
 func (f *fakeClient) ListReplicaSets(_ context.Context, _ string, sel map[string]string) ([]kube.ReplicaSet, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.listed(sel["app"]).rs, nil
+	s := f.listed(sel["app"])
+	return s.rs, s.listErr
 }
 
 func (f *fakeClient) ListPods(_ context.Context, _ string, sel map[string]string) ([]kube.Pod, error) {
@@ -68,9 +72,13 @@ func (f *fakeClient) ListPods(_ context.Context, _ string, sel map[string]string
 func (f *fakeClient) Annotate(_ context.Context, _, name, key, value string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if key != kickAnnotation || value == "" {
-		return errors.New("bad annotation")
+	if f.annotateErr != nil {
+		return f.annotateErr
 	}
+	if key != kickAnnotation || value == "" || f.kickValues[value] {
+		return errors.New("bad or repeated annotation")
+	}
+	f.kickValues[value] = true
 	f.kicks[name]++
 	return nil
 }
@@ -189,6 +197,68 @@ func TestWatchFailureNeedsConfirmation(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "confirming on next check") {
 		t.Fatalf("missing confirmation log:\n%s", out.String())
+	}
+}
+
+func TestWatchListErrorCounts(t *testing.T) {
+	broken := stuck("app")
+	broken.listErr = errors.New("list forbidden")
+	f := newFake(map[string][]snapshot{"app": {broken}})
+	r := watcher(f, &bytes.Buffer{}).Watch(context.Background(), "app")
+	if r.Status != Failed || !strings.Contains(r.Reason, "list replicasets: list forbidden") {
+		t.Fatalf("status %s reason %q", r.Status, r.Reason)
+	}
+}
+
+func TestWatchKickErrorKeepsWatching(t *testing.T) {
+	f := newFake(map[string][]snapshot{"app": {stuck("app"), stuck("app"), stuck("app"), stuck("app"), doneSnap("app")}})
+	f.annotateErr = errors.New("patch forbidden")
+	var out bytes.Buffer
+	r := watcher(f, &out).Watch(context.Background(), "app")
+	if r.Status != Succeeded {
+		t.Fatalf("status %s: %s", r.Status, r.Reason)
+	}
+	if !strings.Contains(out.String(), "kick failed, still watching: patch forbidden") || !strings.Contains(out.String(), "⏳") {
+		t.Fatalf("unexpected log:\n%s", out.String())
+	}
+}
+
+func TestWatchKickInterval(t *testing.T) {
+	f := newFake(map[string][]snapshot{"app": {stuck("app"), stuck("app"), stuck("app"), doneSnap("app")}})
+	w := watcher(f, &bytes.Buffer{})
+	w.KickInterval = time.Hour
+	if r := w.Watch(context.Background(), "app"); r.Status != Succeeded {
+		t.Fatalf("status %s: %s", r.Status, r.Reason)
+	}
+	if got := f.kickCount("app"); got != 1 {
+		t.Fatalf("kicks %d, want 1", got)
+	}
+}
+
+func TestWatchFailureStreakResetByError(t *testing.T) {
+	blip := snapshot{err: errors.New("blip")}
+	f := newFake(map[string][]snapshot{"app": {crashSnap("app"), blip, crashSnap("app"), doneSnap("app")}})
+	if r := watcher(f, &bytes.Buffer{}).Watch(context.Background(), "app"); r.Status != Succeeded {
+		t.Fatalf("status %s: %s", r.Status, r.Reason)
+	}
+}
+
+func TestWatchFailureNeedsSameKey(t *testing.T) {
+	paused := stuck("app")
+	paused.d.Spec.Paused = true
+	f := newFake(map[string][]snapshot{"app": {paused, crashSnap("app"), doneSnap("app")}})
+	if r := watcher(f, &bytes.Buffer{}).Watch(context.Background(), "app"); r.Status != Succeeded {
+		t.Fatalf("status %s: %s", r.Status, r.Reason)
+	}
+}
+
+func TestWatchPausedFails(t *testing.T) {
+	paused := stuck("app")
+	paused.d.Spec.Paused = true
+	f := newFake(map[string][]snapshot{"app": {paused}})
+	r := watcher(f, &bytes.Buffer{}).Watch(context.Background(), "app")
+	if r.Status != Failed || r.Reason != "deployment is paused" || f.kickCount("app") != 0 {
+		t.Fatalf("status %s reason %q kicks %d", r.Status, r.Reason, f.kickCount("app"))
 	}
 }
 

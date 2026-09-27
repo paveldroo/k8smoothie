@@ -25,6 +25,7 @@ var (
 const (
 	usageExitCode = 2
 	maxFrequency  = 3600
+	kickInterval  = 15 * time.Second
 )
 
 type config struct {
@@ -67,7 +68,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, client ku
 
 	targets := cfg.deployments
 	if cfg.release != "" {
-		targets, err = discover(ctx, client, cfg.namespace, cfg.release)
+		targets, err = discover(ctx, client, cfg, stdout)
 		if err != nil {
 			fmt.Fprintf(stdout, "💥 %s\n", err)
 			return cfg.errorExitCode
@@ -77,7 +78,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, client ku
 	fmt.Fprintf(stdout, "🧋 k8smoothie %s: namespace=%s, deployments=%s, timeout=%s, frequency=%s, error-exit-code=%d\n",
 		version, cfg.namespace, strings.Join(targets, ","), timeoutString(cfg.timeout), cfg.frequency, cfg.errorExitCode)
 
-	w := rollout.Watcher{Client: client, Namespace: cfg.namespace, Frequency: cfg.frequency, Out: stdout}
+	w := rollout.Watcher{Client: client, Namespace: cfg.namespace, Frequency: cfg.frequency, KickInterval: kickInterval, Out: stdout}
 	results := w.WaitAll(ctx, targets)
 
 	fmt.Fprintln(stdout, "🧋 Summary:")
@@ -169,13 +170,27 @@ func splitNames(s string) ([]string, error) {
 	return names, nil
 }
 
-func discover(ctx context.Context, client kube.Client, ns, release string) ([]string, error) {
-	deps, err := client.ListDeployments(ctx, ns)
-	if err != nil {
-		return nil, fmt.Errorf("discover deployments: %w", err)
+func discover(ctx context.Context, client kube.Client, cfg config, out io.Writer) ([]string, error) {
+	ns, release := cfg.namespace, cfg.release
+	var deps []kube.Deployment
+	for attempt := 1; ; attempt++ {
+		var err error
+		deps, err = client.ListDeployments(ctx, ns)
+		if err == nil {
+			break
+		}
+		if ctx.Err() != nil || attempt >= rollout.MaxConsecutiveErrors {
+			return nil, fmt.Errorf("discover deployments: %w", err)
+		}
+		fmt.Fprintf(out, "🙈 discover deployments: %s (%d/%d consecutive errors)\n", err, attempt, rollout.MaxConsecutiveErrors)
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("discover deployments: %w", ctx.Err())
+		case <-time.After(cfg.frequency):
+		}
 	}
 	var names []string
-	for _, d := range kube.FilterByRelease(deps, release) {
+	for _, d := range kube.FilterByRelease(deps, release, ns) {
 		if d.Metadata.DeletionTimestamp != nil {
 			continue
 		}

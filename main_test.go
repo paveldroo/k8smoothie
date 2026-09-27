@@ -18,8 +18,9 @@ func TestMain(m *testing.M) {
 }
 
 type fakeClient struct {
-	deps   []kube.Deployment
-	getErr map[string]error
+	deps     []kube.Deployment
+	getErr   map[string]error
+	listErrs *int
 }
 
 func (f fakeClient) GetDeployment(_ context.Context, _, name string) (kube.Deployment, error) {
@@ -35,6 +36,10 @@ func (f fakeClient) GetDeployment(_ context.Context, _, name string) (kube.Deplo
 }
 
 func (f fakeClient) ListDeployments(context.Context, string) ([]kube.Deployment, error) {
+	if f.listErrs != nil && *f.listErrs > 0 {
+		*f.listErrs--
+		return nil, errors.New("apiserver unavailable")
+	}
 	return f.deps, nil
 }
 
@@ -177,5 +182,19 @@ func TestCancel(t *testing.T) {
 	code := run(ctx, []string{"-namespace=ns", "-deployment=a", "-error-exit-code=4"}, &out, &out, fakeClient{deps: []kube.Deployment{stuckDeploy("a", "")}})
 	if code != 4 || !strings.Contains(out.String(), "🛑 a:") {
 		t.Fatalf("code %d: %s", code, out.String())
+	}
+}
+
+func TestDiscoveryRetries(t *testing.T) {
+	errs := 2
+	c := fakeClient{deps: []kube.Deployment{doneDeploy("a", "r")}, listErrs: &errs}
+	code, out := runT(t, c, "-namespace=ns", "-helm-release=r")
+	if code != 0 || !strings.Contains(out, "2/3 consecutive errors") || !strings.Contains(out, "✅ a:") {
+		t.Fatalf("code %d: %s", code, out)
+	}
+	errs = 3
+	code, out = runT(t, c, "-namespace=ns", "-helm-release=r", "-error-exit-code=5")
+	if code != 5 || !strings.Contains(out, "apiserver unavailable") {
+		t.Fatalf("code %d: %s", code, out)
 	}
 }

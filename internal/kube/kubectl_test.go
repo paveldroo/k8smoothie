@@ -17,6 +17,12 @@ func withRelease(name, release string) Deployment {
 	return d
 }
 
+func withReleaseNS(name, release, ns string) Deployment {
+	d := withRelease(name, release)
+	d.Metadata.Annotations[AnnotationReleaseNamespace] = ns
+	return d
+}
+
 func names(deps []Deployment) []string {
 	var out []string
 	for _, d := range deps {
@@ -33,6 +39,8 @@ func TestFilterByRelease(t *testing.T) {
 		withRelease("speech-gp-stt-encoder-decoder", "speech-gp-stt"),
 		withRelease("unmanaged", ""),
 		withRelease("other", "speech-gp-stt-other"),
+		withReleaseNS("foreign-ns", "speech-gp-stt", "other-ns"),
+		withReleaseNS("same-ns", "speech-gp-stt", "ns"),
 	}
 
 	tests := []struct {
@@ -41,12 +49,12 @@ func TestFilterByRelease(t *testing.T) {
 	}{
 		{"endpointer", []string{"speech-gp-stt-endpointer"}},
 		{"endpointer-heavy", []string{"speech-gp-stt-endpointer-heavy"}},
-		{"speech-gp-stt", []string{"speech-gp-stt-decoder", "speech-gp-stt-encoder-decoder"}},
+		{"speech-gp-stt", []string{"speech-gp-stt-decoder", "speech-gp-stt-encoder-decoder", "same-ns"}},
 		{"missing", nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.release, func(t *testing.T) {
-			got := names(FilterByRelease(deps, tt.release))
+			got := names(FilterByRelease(deps, tt.release, "ns"))
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("got %v, want %v", got, tt.want)
 			}
@@ -90,6 +98,14 @@ func TestKubectlErrorKeepsStderr(t *testing.T) {
 	}
 }
 
+func TestKubectlErrorIsOneLine(t *testing.T) {
+	k, _ := fakeKubectl(t, "printf 'line one\\nline two\\n' >&2\nexit 1\n")
+	_, err := k.ListDeployments(context.Background(), "ns")
+	if err == nil || strings.Contains(err.Error(), "\n") || !strings.Contains(err.Error(), "line one line two") {
+		t.Fatalf("got %q", err)
+	}
+}
+
 func TestKubectlListPods(t *testing.T) {
 	k, argsFile := fakeKubectl(t, `echo '{"items":[{"metadata":{"name":"p","ownerReferences":[{"uid":"rs"}]},"status":{"phase":"Running"}}]}'`+"\n")
 	pods, err := k.ListPods(context.Background(), "ns", map[string]string{"app": "x"})
@@ -103,7 +119,7 @@ func TestKubectlListPods(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.TrimSpace(string(args)), "-n ns get pods -o json -l app=x"; got != want {
+	if got, want := strings.TrimSpace(string(args)), "--request-timeout=30s -n ns get pods -o json -l app=x"; got != want {
 		t.Fatalf("args %q, want %q", got, want)
 	}
 }
@@ -128,7 +144,7 @@ func TestAnnotateArgs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.TrimSpace(string(args)), "-n ns annotate deployment d last-activated=t --overwrite"; got != want {
+	if got, want := strings.TrimSpace(string(args)), "--request-timeout=30s -n ns annotate deployment d last-activated=t --overwrite"; got != want {
 		t.Fatalf("args %q, want %q", got, want)
 	}
 }

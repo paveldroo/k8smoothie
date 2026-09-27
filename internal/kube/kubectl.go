@@ -12,7 +12,10 @@ import (
 	"time"
 )
 
-const waitDelay = 5 * time.Second
+const (
+	waitDelay      = 5 * time.Second
+	requestTimeout = "--request-timeout=30s"
+)
 
 var (
 	dns1123Label     = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
@@ -98,13 +101,14 @@ func (k Kubectl) getJSON(ctx context.Context, v any, args ...string) error {
 
 func (k Kubectl) run(ctx context.Context, args ...string) ([]byte, error) {
 	var stdout, stderr bytes.Buffer
+	args = append([]string{requestTimeout}, args...)
 	cmd := exec.CommandContext(ctx, k.bin(), args...)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	cmd.WaitDelay = waitDelay
 	if err := cmd.Run(); err != nil {
 		call := k.bin() + " " + strings.Join(args, " ")
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+		if msg := strings.Join(strings.Fields(stderr.String()), " "); msg != "" {
 			return nil, fmt.Errorf("%s: %w: %s", call, err, msg)
 		}
 		return nil, fmt.Errorf("%s: %w", call, err)
@@ -132,10 +136,12 @@ func selectorArgs(selector map[string]string) []string {
 }
 
 // FilterByRelease returns deployments whose Helm release annotation equals release exactly.
-func FilterByRelease(deps []Deployment, release string) []Deployment {
+// Deployments annotated with a different release namespace than ns are skipped.
+func FilterByRelease(deps []Deployment, release, ns string) []Deployment {
 	var out []Deployment
 	for _, d := range deps {
-		if d.Metadata.Annotations[AnnotationReleaseName] == release {
+		a := d.Metadata.Annotations
+		if a[AnnotationReleaseName] == release && (a[AnnotationReleaseNamespace] == "" || a[AnnotationReleaseNamespace] == ns) {
 			out = append(out, d)
 		}
 	}

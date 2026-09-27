@@ -3,7 +3,6 @@ package rollout
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/paveldroo/k8smoothie/internal/kube"
 )
@@ -12,6 +11,7 @@ func TestEvaluate(t *testing.T) {
 	d := mkDeploy("endpointer", 2, 2, counts{3, 3, 3, 3})
 	oldRS := mkRS(d, "1")
 	curRS := withReplicas(mkRS(d, "2"), 3)
+	surgeRS := withReplicas(mkRS(d, "2"), 1)
 	rsList := []kube.ReplicaSet{oldRS, curRS}
 
 	heavy := mkDeploy("endpointer-heavy", 1, 1, counts{1, 1, 1, 1})
@@ -78,8 +78,8 @@ func TestEvaluate(t *testing.T) {
 		{
 			name: "maxUnavailable=0 mid-rollout is not done",
 			d:    with(counts{3, 4, 1, 3}),
-			rs:   rsList,
-			pods: cat(pods(oldRS, kube.PodRunning, 3), pods(curRS, kube.PodPending, 1)),
+			rs:   []kube.ReplicaSet{oldRS, surgeRS},
+			pods: cat(pods(oldRS, kube.PodRunning, 3), pods(surgeRS, kube.PodPending, 1)),
 			want: StateWaiting,
 		},
 		{
@@ -89,6 +89,20 @@ func TestEvaluate(t *testing.T) {
 			pods:    cat(pods(curRS, kube.PodPending, 2), pods(curRS, kube.PodRunning, 1)),
 			want:    StateWaiting,
 			warning: true,
+		},
+		{
+			name: "pending pod plus missing pod kicks",
+			d:    with(counts{3, 3, 2, 1}),
+			rs:   rsList,
+			pods: cat(pods(curRS, kube.PodRunning, 1), pods(curRS, kube.PodPending, 1)),
+			want: StateKick,
+		},
+		{
+			name: "new replicaset with zero replicas under maxSurge=0 waits",
+			d:    with(counts{3, 2, 0, 2}),
+			rs:   []kube.ReplicaSet{oldRS, withReplicas(mkRS(d, "2"), 0)},
+			pods: pods(oldRS, kube.PodRunning, 2),
+			want: StateWaiting,
 		},
 		{
 			name: "CrashLoopBackOff in current replicaset fails",
@@ -105,10 +119,10 @@ func TestEvaluate(t *testing.T) {
 			want: StateFailed,
 		},
 		{
-			name: "ErrImagePull is transient",
+			name: "ErrImagePull is transient, not failed",
 			d:    with(counts{3, 3, 3, 2}),
 			rs:   rsList,
-			pods: []kube.Pod{waiting(mkPod(curRS, kube.PodPending), "ErrImagePull")},
+			pods: cat(pods(curRS, kube.PodRunning, 2), []kube.Pod{waiting(mkPod(curRS, kube.PodPending), "ErrImagePull")}),
 			want: StateWaiting,
 		},
 		{
@@ -145,11 +159,11 @@ func TestEvaluate(t *testing.T) {
 			want: StateKick,
 		},
 		{
-			name: "terminating pods block kick",
+			name: "terminating pods do not block kick",
 			d:    with(counts{3, 3, 0, 0}),
 			rs:   rsList,
 			pods: []kube.Pod{terminating(mkPod(oldRS, kube.PodRunning)), terminating(mkPod(curRS, kube.PodRunning))},
-			want: StateWaiting,
+			want: StateKick,
 		},
 		{
 			name: "terminating pod of other deployment does not block kick",
@@ -159,14 +173,14 @@ func TestEvaluate(t *testing.T) {
 			want: StateKick,
 		},
 		{
-			name: "pending in current replicaset blocks kick",
+			name: "all pods present including pending waits",
 			d:    with(counts{3, 3, 3, 2}),
 			rs:   rsList,
 			pods: cat(pods(curRS, kube.PodRunning, 2), pods(curRS, kube.PodPending, 1)),
 			want: StateWaiting,
 		},
 		{
-			name: "pending in old replicaset does not block kick",
+			name: "pending in old replicaset ignored",
 			d:    with(counts{3, 3, 2, 2}),
 			rs:   rsList,
 			pods: cat(pods(curRS, kube.PodRunning, 2), pods(oldRS, kube.PodPending, 1)),
@@ -176,7 +190,7 @@ func TestEvaluate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			v := Evaluate(tt.d, tt.rs, tt.pods, time.Now())
+			v := Evaluate(tt.d, tt.rs, tt.pods)
 			if v.State != tt.want {
 				t.Fatalf("state %s, want %s (reason: %s)", v.State, tt.want, v.Reason)
 			}
@@ -190,24 +204,15 @@ func TestEvaluate(t *testing.T) {
 	}
 }
 
-func TestEvaluateStuckTerminatingPastGraceKicks(t *testing.T) {
-	d := mkDeploy("app", 2, 2, counts{3, 3, 0, 0})
-	old := mkRS(d, "1")
-	v := Evaluate(d, []kube.ReplicaSet{old, withReplicas(mkRS(d, "2"), 3)}, []kube.Pod{staleTerminating(mkPod(old, kube.PodRunning))}, time.Now())
-	if v.State != StateKick || !strings.Contains(v.Reason, "past grace period") {
-		t.Fatalf("state %s reason %q", v.State, v.Reason)
-	}
-}
-
 func TestEvaluatePausedFails(t *testing.T) {
 	d := mkDeploy("app", 2, 2, counts{3, 3, 1, 1})
 	d.Spec.Paused = true
-	if v := Evaluate(d, nil, nil, time.Now()); v.State != StateFailed {
+	if v := Evaluate(d, nil, nil); v.State != StateFailed {
 		t.Fatalf("state %s, want failed", v.State)
 	}
 	done := mkDeploy("app", 2, 2, counts{3, 3, 3, 3})
 	done.Spec.Paused = true
-	if v := Evaluate(done, nil, nil, time.Now()); v.State != StateDone {
+	if v := Evaluate(done, nil, nil); v.State != StateDone {
 		t.Fatalf("paused but rolled out: state %s, want done", v.State)
 	}
 }
@@ -215,7 +220,7 @@ func TestEvaluatePausedFails(t *testing.T) {
 func TestEvaluateReplicaFailureInReason(t *testing.T) {
 	d := mkDeploy("app", 2, 2, counts{3, 0, 0, 0})
 	d.Status.Conditions = []kube.DeploymentCondition{{Type: "ReplicaFailure", Status: "True", Reason: "FailedCreate", Message: "exceeded quota: max-pods"}}
-	v := Evaluate(d, []kube.ReplicaSet{withReplicas(mkRS(d, "2"), 3)}, nil, time.Now())
+	v := Evaluate(d, []kube.ReplicaSet{withReplicas(mkRS(d, "2"), 3)}, nil)
 	if v.State != StateKick || !strings.Contains(v.Reason, "exceeded quota: max-pods") {
 		t.Fatalf("state %s reason %q", v.State, v.Reason)
 	}
@@ -224,7 +229,7 @@ func TestEvaluateReplicaFailureInReason(t *testing.T) {
 func TestEvaluateNilReplicasDefaultsToOne(t *testing.T) {
 	d := mkDeploy("x", 1, 1, counts{0, 1, 1, 1})
 	d.Spec.Replicas = nil
-	if v := Evaluate(d, nil, nil, time.Now()); v.State != StateDone {
+	if v := Evaluate(d, nil, nil); v.State != StateDone {
 		t.Fatalf("state %s, want done", v.State)
 	}
 }

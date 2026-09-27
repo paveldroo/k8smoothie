@@ -3,8 +3,9 @@ package kube
 import "time"
 
 const (
-	AnnotationRevision    = "deployment.kubernetes.io/revision"
-	AnnotationReleaseName = "meta.helm.sh/release-name"
+	AnnotationRevision         = "deployment.kubernetes.io/revision"
+	AnnotationReleaseName      = "meta.helm.sh/release-name"
+	AnnotationReleaseNamespace = "meta.helm.sh/release-namespace"
 )
 
 const (
@@ -21,13 +22,12 @@ type OwnerReference struct {
 }
 
 type ObjectMeta struct {
-	Name                       string            `json:"name"`
-	UID                        string            `json:"uid"`
-	Generation                 int64             `json:"generation"`
-	Annotations                map[string]string `json:"annotations"`
-	OwnerReferences            []OwnerReference  `json:"ownerReferences"`
-	DeletionTimestamp          *time.Time        `json:"deletionTimestamp"`
-	DeletionGracePeriodSeconds *int64            `json:"deletionGracePeriodSeconds"`
+	Name              string            `json:"name"`
+	UID               string            `json:"uid"`
+	Generation        int64             `json:"generation"`
+	Annotations       map[string]string `json:"annotations"`
+	OwnerReferences   []OwnerReference  `json:"ownerReferences"`
+	DeletionTimestamp *time.Time        `json:"deletionTimestamp"`
 }
 
 // OwnedBy reports whether the object has an owner reference with the given uid.

@@ -16,7 +16,7 @@ var ErrNoDeployments = errors.New("no deployments found")
 
 const (
 	kickAnnotation       = "last-activated"
-	maxConsecutiveErrors = 3
+	MaxConsecutiveErrors = 3
 	failConfirmations    = 2
 )
 
@@ -66,10 +66,11 @@ type Result struct {
 
 // Watcher waits for Deployment rollouts in one namespace, kicking stuck ones.
 type Watcher struct {
-	Client    kube.Client
-	Namespace string
-	Frequency time.Duration
-	Out       io.Writer
+	Client       kube.Client
+	Namespace    string
+	Frequency    time.Duration
+	KickInterval time.Duration
+	Out          io.Writer
 }
 
 // WaitAll watches every named Deployment concurrently and returns results in input order.
@@ -94,8 +95,9 @@ func (w Watcher) WaitAll(ctx context.Context, names []string) []Result {
 }
 
 // Watch polls one Deployment until it is rolled out, fails, or ctx ends.
-// A failure verdict must repeat on consecutive checks and kubectl errors must
-// occur maxConsecutiveErrors times in a row before the watch fails.
+// The same failure must be seen on consecutive checks and kubectl errors must
+// occur MaxConsecutiveErrors times in a row before the watch fails.
+// Kicks are sent at most once per KickInterval; a failed kick is only logged.
 func (w Watcher) Watch(ctx context.Context, name string) Result {
 	out := w.Out
 	if out == nil {
@@ -114,19 +116,37 @@ func (w Watcher) Watch(ctx context.Context, name string) Result {
 		return finish(Canceled, "canceled")
 	}
 
-	var warned bool
-	var errStreak, failStreak int
+	var (
+		warned     bool
+		errStreak  int
+		failStreak int
+		failKey    string
+		lastKick   time.Time
+	)
 	for {
 		d, v, err := w.check(ctx, name)
-		if err == nil {
+		if err != nil {
+			if ctx.Err() != nil {
+				return fromCtx()
+			}
+			failStreak, failKey = 0, ""
+			errStreak++
+			if errStreak >= MaxConsecutiveErrors {
+				return finish(Failed, err.Error())
+			}
+			logger.Printf("🙈 %s (%d/%d consecutive errors)", err, errStreak, MaxConsecutiveErrors)
+		} else {
+			errStreak = 0
 			if v.Warning != "" && !warned {
 				logger.Printf("⚠️ %s", v.Warning)
 				warned = true
 			}
-			if v.State == StateFailed {
+			if v.State == StateFailed && v.Key == failKey {
 				failStreak++
+			} else if v.State == StateFailed {
+				failStreak, failKey = 1, v.Key
 			} else {
-				failStreak = 0
+				failStreak, failKey = 0, ""
 			}
 
 			switch v.State {
@@ -138,26 +158,22 @@ func (w Watcher) Watch(ctx context.Context, name string) Result {
 				}
 				logger.Printf("🤨 %s, confirming on next check", v.Reason)
 			case StateKick:
+				if !lastKick.IsZero() && time.Since(lastKick) < w.KickInterval {
+					logger.Printf("🤔 %s, last kick %s ago", v.Reason, time.Since(lastKick).Round(time.Second))
+					break
+				}
 				logger.Printf("🥾 %s, let's kick the deployment a little", v.Reason)
-				if kerr := w.Client.Annotate(ctx, w.Namespace, name, kickAnnotation, time.Now().Format(time.RFC3339)); kerr != nil {
-					err = fmt.Errorf("kick: %w", kerr)
+				if kerr := w.Client.Annotate(ctx, w.Namespace, name, kickAnnotation, time.Now().Format(time.RFC3339Nano)); kerr != nil {
+					if ctx.Err() != nil {
+						return fromCtx()
+					}
+					logger.Printf("🙈 kick failed, still watching: %s", kerr)
+				} else {
+					lastKick = time.Now()
 				}
 			default:
 				logger.Printf("🤔 %s", v.Reason)
 			}
-		}
-
-		if err != nil {
-			if ctx.Err() != nil {
-				return fromCtx()
-			}
-			errStreak++
-			if errStreak >= maxConsecutiveErrors {
-				return finish(Failed, err.Error())
-			}
-			logger.Printf("🙈 %s (%d/%d consecutive errors)", err, errStreak, maxConsecutiveErrors)
-		} else {
-			errStreak = 0
 			st := d.Status
 			logger.Printf("⏳ updated/available/replicas: %d/%d/%d of %d desired", st.UpdatedReplicas, st.AvailableReplicas, st.Replicas, d.DesiredReplicas())
 		}
@@ -200,5 +216,5 @@ func (w Watcher) check(ctx context.Context, name string) (kube.Deployment, Verdi
 	if err != nil {
 		return d, Verdict{}, fmt.Errorf("list pods: %w", err)
 	}
-	return d, Evaluate(d, rs, pods, time.Now()), nil
+	return d, Evaluate(d, rs, pods), nil
 }

@@ -47,7 +47,7 @@ k8smoothie has two modes:
   ```bash
   k8smoothie -namespace=production -deployment=api,worker
   ```
-- **Helm release**: wait for every Deployment in the namespace with annotation `meta.helm.sh/release-name: <release>` (set by Helm on every resource it manages). Exact match, so `endpointer` never picks up `endpointer-heavy`. Finding zero Deployments is an error.
+- **Helm release**: wait for every Deployment in the namespace with annotation `meta.helm.sh/release-name: <release>` (set by Helm on every resource it manages). Exact match, so `endpointer` never picks up `endpointer-heavy`; Deployments whose `meta.helm.sh/release-namespace` names another namespace are skipped. Finding zero Deployments is an error.
   ```bash
   k8smoothie -namespace=production -helm-release=my-release -timeout=30m
   ```
@@ -75,12 +75,12 @@ For each Deployment, every `-frequency` seconds:
   - `status.updatedReplicas == spec.replicas`
   - `status.replicas == status.updatedReplicas`
   - `status.availableReplicas == status.updatedReplicas`
-- **Failed** when a pod of the current ReplicaSet has a container or init container waiting with `CrashLoopBackOff`, `ImagePullBackOff`, `InvalidImageName` or `CreateContainerConfigError`. Terminal pods (e.g. `Evicted`) and pods of old ReplicaSets are ignored. The failure must be seen on 2 checks in a row, so a single startup crash or a Secret created a moment late does not abort the wait.
+- **Failed** when a pod of the current ReplicaSet has a container or init container waiting with `CrashLoopBackOff`, `ImagePullBackOff`, `InvalidImageName` or `CreateContainerConfigError`. Terminal pods (e.g. `Evicted`) and pods of old ReplicaSets are ignored. The same failure (pod, container and reason) must be seen on 2 checks in a row.
 - **Failed** when the Deployment is paused (`spec.paused`) and not rolled out.
-- **Kick** (annotate the Deployment with `last-activated=<time>`) when not done, no owned pod is terminating, no pod of the current ReplicaSet is Pending, and the current ReplicaSet has fewer pods than its `spec.replicas` (or does not exist yet) — including when there are zero pods. This makes the controller retry creating pods right away instead of waiting out its backoff after quota errors. Pods that exist but are not yet Ready are waited for, not kicked.
+- **Kick** (annotate the Deployment with `last-activated=<time>`) when not done and the current ReplicaSet has fewer live pods than its `spec.replicas` (or does not exist yet) — including when there are zero pods, and regardless of other pods still terminating or pending, since the pod quota is shared by the whole namespace. This makes the controller retry creating pods right away instead of waiting out its backoff after quota errors. At most one kick per 15s; a failed kick (e.g. no `patch` permission) is logged and the wait continues. Pods that exist but are not yet Ready are waited for, not kicked.
 - Otherwise **wait**.
 
-ReplicaSets and pods are matched by `ownerReferences` uid, not by name. Pods stuck terminating past `deletionTimestamp + deletionGracePeriodSeconds` (e.g. on a lost node) no longer block the kick, matching how ResourceQuota stops counting them. A `ReplicaFailure` condition message (e.g. `exceeded quota`) is shown in the log. `ProgressDeadlineExceeded` is only logged as a warning; `-timeout` is the only deadline. kubectl errors are retried; the Deployment fails only after 3 consecutive errors.
+ReplicaSets and pods are matched by `ownerReferences` uid, not by name. A `ReplicaFailure` condition message (e.g. `exceeded quota`) is shown in the log. `ProgressDeadlineExceeded` is only logged as a warning; `-timeout` is the only deadline. Every kubectl call has a 30s request timeout. kubectl errors, including during discovery, are retried; a Deployment fails only after 3 consecutive errors.
 
 On exit, a summary lists ✅ succeeded / 💥 failed / ⏰ timed out / 🛑 canceled per Deployment. SIGINT/SIGTERM (e.g. GitLab job cancel) cancels the wait and prints the summary.
 

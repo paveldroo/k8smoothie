@@ -71,17 +71,8 @@ func pods(rs kube.ReplicaSet, phase string, n int) []kube.Pod {
 }
 
 func terminating(p kube.Pod) kube.Pod {
-	return deleted(p, time.Now().Add(60*time.Second))
-}
-
-func staleTerminating(p kube.Pod) kube.Pod {
-	return deleted(p, time.Now().Add(-10*time.Minute))
-}
-
-func deleted(p kube.Pod, at time.Time) kube.Pod {
-	grace := int64(60)
+	at := time.Now().Add(60 * time.Second)
 	p.Metadata.DeletionTimestamp = &at
-	p.Metadata.DeletionGracePeriodSeconds = &grace
 	return p
 }
 
