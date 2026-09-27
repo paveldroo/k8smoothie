@@ -72,6 +72,7 @@ func Evaluate(d kube.Deployment, rsList []kube.ReplicaSet, pods []kube.Pod, now 
 	revision := d.Metadata.Annotations[kube.AnnotationRevision]
 	owned := map[string]bool{}
 	current := ""
+	var currentDesired int32
 	for _, rs := range rsList {
 		if !rs.Metadata.OwnedBy(d.Metadata.UID) {
 			continue
@@ -79,10 +80,12 @@ func Evaluate(d kube.Deployment, rsList []kube.ReplicaSet, pods []kube.Pod, now 
 		owned[rs.Metadata.UID] = true
 		if revision != "" && rs.Metadata.Annotations[kube.AnnotationRevision] == revision {
 			current = rs.Metadata.UID
+			currentDesired = rs.DesiredReplicas()
 		}
 	}
 
 	var terminating, pending, terminal, old, stale int
+	var live int32
 	for _, p := range pods {
 		if !ownedByAny(p.Metadata, owned) {
 			continue
@@ -108,6 +111,7 @@ func Evaluate(d kube.Deployment, rsList []kube.ReplicaSet, pods []kube.Pod, now 
 			v.Reason = fmt.Sprintf("pod %s: %s", p.Metadata.Name, reason)
 			return v
 		}
+		live++
 		if p.Status.Phase == kube.PodPending {
 			pending++
 		}
@@ -118,9 +122,14 @@ func Evaluate(d kube.Deployment, rsList []kube.ReplicaSet, pods []kube.Pod, now 
 		v.Reason = fmt.Sprintf("%d pod(s) terminating", terminating)
 	case pending > 0:
 		v.Reason = fmt.Sprintf("%d pod(s) of current replicaset pending", pending)
-	default:
+	case current == "":
 		v.State = StateKick
-		v.Reason = "no terminating or pending pods"
+		v.Reason = "current replicaset not found"
+	case live < currentDesired:
+		v.State = StateKick
+		v.Reason = fmt.Sprintf("current replicaset has %d of %d pods", live, currentDesired)
+	default:
+		v.Reason = fmt.Sprintf("current replicaset has all %d pods, waiting for them to become available", live)
 	}
 	v.Reason += replicaFailure(d) + ignoredSuffix(terminal, old, stale)
 	return v

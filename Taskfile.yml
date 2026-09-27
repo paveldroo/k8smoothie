@@ -39,8 +39,8 @@ tasks:
   lint:
     cmds:
       - go vet ./...
-      - if command -v golangci-lint >/dev/null 2>&1; then golangci-lint run ./...; else echo "golangci-lint not found, skipping"; fi
+      - golangci-lint run ./...
 
   build:
     cmds:
-      - GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version={{.VERSION}}" -o k8smoothie-linux-amd64
+      - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-X main.version={{.VERSION}}" -o k8smoothie-linux-amd64

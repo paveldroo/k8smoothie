@@ -17,7 +17,10 @@ import (
 	"github.com/paveldroo/k8smoothie/internal/rollout"
 )
 
-var version = "dev"
+var (
+	version       = "dev"
+	frequencyUnit = time.Second
+)
 
 const (
 	usageExitCode = 2
@@ -110,7 +113,7 @@ func parseFlags(args []string, stderr io.Writer) (config, error) {
 		namespace:     *namespace,
 		release:       *release,
 		timeout:       *timeout,
-		frequency:     time.Duration(*frequency) * time.Second,
+		frequency:     time.Duration(*frequency) * frequencyUnit,
 		errorExitCode: *errorExitCode,
 		showVersion:   *showVersion,
 	}

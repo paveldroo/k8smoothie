@@ -87,8 +87,21 @@ type DeploymentList struct {
 	Items []Deployment `json:"items"`
 }
 
+type ReplicaSetSpec struct {
+	Replicas *int32 `json:"replicas"`
+}
+
 type ReplicaSet struct {
-	Metadata ObjectMeta `json:"metadata"`
+	Metadata ObjectMeta     `json:"metadata"`
+	Spec     ReplicaSetSpec `json:"spec"`
+}
+
+// DesiredReplicas returns spec.replicas, defaulting to 1 like the API server.
+func (r ReplicaSet) DesiredReplicas() int32 {
+	if r.Spec.Replicas == nil {
+		return 1
+	}
+	return *r.Spec.Replicas
 }
 
 type ReplicaSetList struct {

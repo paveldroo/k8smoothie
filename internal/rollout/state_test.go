@@ -11,7 +11,7 @@ import (
 func TestEvaluate(t *testing.T) {
 	d := mkDeploy("endpointer", 2, 2, counts{3, 3, 3, 3})
 	oldRS := mkRS(d, "1")
-	curRS := mkRS(d, "2")
+	curRS := withReplicas(mkRS(d, "2"), 3)
 	rsList := []kube.ReplicaSet{oldRS, curRS}
 
 	heavy := mkDeploy("endpointer-heavy", 1, 1, counts{1, 1, 1, 1})
@@ -56,11 +56,11 @@ func TestEvaluate(t *testing.T) {
 			want: StateWaiting,
 		},
 		{
-			name: "available less than updated",
+			name: "available less than updated with all pods present waits",
 			d:    with(counts{3, 3, 3, 2}),
 			rs:   rsList,
 			pods: pods(curRS, kube.PodRunning, 3),
-			want: StateKick,
+			want: StateWaiting,
 		},
 		{
 			name: "done",
@@ -193,7 +193,7 @@ func TestEvaluate(t *testing.T) {
 func TestEvaluateStuckTerminatingPastGraceKicks(t *testing.T) {
 	d := mkDeploy("app", 2, 2, counts{3, 3, 0, 0})
 	old := mkRS(d, "1")
-	v := Evaluate(d, []kube.ReplicaSet{old, mkRS(d, "2")}, []kube.Pod{staleTerminating(mkPod(old, kube.PodRunning))}, time.Now())
+	v := Evaluate(d, []kube.ReplicaSet{old, withReplicas(mkRS(d, "2"), 3)}, []kube.Pod{staleTerminating(mkPod(old, kube.PodRunning))}, time.Now())
 	if v.State != StateKick || !strings.Contains(v.Reason, "past grace period") {
 		t.Fatalf("state %s reason %q", v.State, v.Reason)
 	}
@@ -215,7 +215,7 @@ func TestEvaluatePausedFails(t *testing.T) {
 func TestEvaluateReplicaFailureInReason(t *testing.T) {
 	d := mkDeploy("app", 2, 2, counts{3, 0, 0, 0})
 	d.Status.Conditions = []kube.DeploymentCondition{{Type: "ReplicaFailure", Status: "True", Reason: "FailedCreate", Message: "exceeded quota: max-pods"}}
-	v := Evaluate(d, []kube.ReplicaSet{mkRS(d, "2")}, nil, time.Now())
+	v := Evaluate(d, []kube.ReplicaSet{withReplicas(mkRS(d, "2"), 3)}, nil, time.Now())
 	if v.State != StateKick || !strings.Contains(v.Reason, "exceeded quota: max-pods") {
 		t.Fatalf("state %s reason %q", v.State, v.Reason)
 	}

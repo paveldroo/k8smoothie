@@ -83,7 +83,7 @@ func (f *fakeClient) kickCount(name string) int {
 
 func stuck(name string) snapshot {
 	d := mkDeploy(name, 2, 2, counts{3, 0, 0, 0})
-	return snapshot{d: d, rs: []kube.ReplicaSet{mkRS(d, "1"), mkRS(d, "2")}}
+	return snapshot{d: d, rs: []kube.ReplicaSet{mkRS(d, "1"), withReplicas(mkRS(d, "2"), 3)}}
 }
 
 func pendingSnap(name string) snapshot {
@@ -156,6 +156,39 @@ func TestWatchKubectlError(t *testing.T) {
 	r := watcher(f, &bytes.Buffer{}).Watch(context.Background(), "app")
 	if r.Status != Failed || !strings.Contains(r.Reason, "forbidden: boom") {
 		t.Fatalf("status %s reason %q", r.Status, r.Reason)
+	}
+}
+
+func TestWatchToleratesTransientErrors(t *testing.T) {
+	blip := snapshot{err: errors.New("etcdserver: leader changed")}
+	f := newFake(map[string][]snapshot{"app": {blip, blip, doneSnap("app")}})
+	var out bytes.Buffer
+	r := watcher(f, &out).Watch(context.Background(), "app")
+	if r.Status != Succeeded {
+		t.Fatalf("status %s: %s", r.Status, r.Reason)
+	}
+	if !strings.Contains(out.String(), "2/3 consecutive errors") {
+		t.Fatalf("missing error log:\n%s", out.String())
+	}
+}
+
+func TestWatchErrorStreakResets(t *testing.T) {
+	blip := snapshot{err: errors.New("blip")}
+	f := newFake(map[string][]snapshot{"app": {blip, blip, stuck("app"), blip, blip, doneSnap("app")}})
+	if r := watcher(f, &bytes.Buffer{}).Watch(context.Background(), "app"); r.Status != Succeeded {
+		t.Fatalf("status %s: %s", r.Status, r.Reason)
+	}
+}
+
+func TestWatchFailureNeedsConfirmation(t *testing.T) {
+	f := newFake(map[string][]snapshot{"app": {crashSnap("app"), pendingSnap("app"), crashSnap("app"), doneSnap("app")}})
+	var out bytes.Buffer
+	r := watcher(f, &out).Watch(context.Background(), "app")
+	if r.Status != Succeeded {
+		t.Fatalf("status %s: %s", r.Status, r.Reason)
+	}
+	if !strings.Contains(out.String(), "confirming on next check") {
+		t.Fatalf("missing confirmation log:\n%s", out.String())
 	}
 }
 

@@ -4,12 +4,18 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/paveldroo/k8smoothie/internal/kube"
 )
+
+func TestMain(m *testing.M) {
+	frequencyUnit = time.Millisecond
+	os.Exit(m.Run())
+}
 
 type fakeClient struct {
 	deps   []kube.Deployment

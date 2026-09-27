@@ -43,6 +43,11 @@ func mkRS(d kube.Deployment, rev string) kube.ReplicaSet {
 	}}
 }
 
+func withReplicas(rs kube.ReplicaSet, n int32) kube.ReplicaSet {
+	rs.Spec.Replicas = &n
+	return rs
+}
+
 var podSeq atomic.Int64
 
 func mkPod(rs kube.ReplicaSet, phase string) kube.Pod {

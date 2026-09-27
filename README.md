@@ -75,12 +75,12 @@ For each Deployment, every `-frequency` seconds:
   - `status.updatedReplicas == spec.replicas`
   - `status.replicas == status.updatedReplicas`
   - `status.availableReplicas == status.updatedReplicas`
-- **Failed** when a pod of the current ReplicaSet has a container or init container waiting with `CrashLoopBackOff`, `ImagePullBackOff`, `InvalidImageName` or `CreateContainerConfigError`. Terminal pods (e.g. `Evicted`) and pods of old ReplicaSets are ignored.
+- **Failed** when a pod of the current ReplicaSet has a container or init container waiting with `CrashLoopBackOff`, `ImagePullBackOff`, `InvalidImageName` or `CreateContainerConfigError`. Terminal pods (e.g. `Evicted`) and pods of old ReplicaSets are ignored. The failure must be seen on 2 checks in a row, so a single startup crash or a Secret created a moment late does not abort the wait.
 - **Failed** when the Deployment is paused (`spec.paused`) and not rolled out.
-- **Kick** (annotate the Deployment with `last-activated=<time>`) when not done, no owned pod is terminating and no pod of the current ReplicaSet is Pending — including when there are zero pods. This makes the controller retry creating pods right away instead of waiting out its backoff after quota errors.
+- **Kick** (annotate the Deployment with `last-activated=<time>`) when not done, no owned pod is terminating, no pod of the current ReplicaSet is Pending, and the current ReplicaSet has fewer pods than its `spec.replicas` (or does not exist yet) — including when there are zero pods. This makes the controller retry creating pods right away instead of waiting out its backoff after quota errors. Pods that exist but are not yet Ready are waited for, not kicked.
 - Otherwise **wait**.
 
-ReplicaSets and pods are matched by `ownerReferences` uid, not by name. Pods stuck terminating past `deletionTimestamp + deletionGracePeriodSeconds` (e.g. on a lost node) no longer block the kick, matching how ResourceQuota stops counting them. A `ReplicaFailure` condition message (e.g. `exceeded quota`) is shown in the log. `ProgressDeadlineExceeded` is only logged as a warning; `-timeout` is the only deadline.
+ReplicaSets and pods are matched by `ownerReferences` uid, not by name. Pods stuck terminating past `deletionTimestamp + deletionGracePeriodSeconds` (e.g. on a lost node) no longer block the kick, matching how ResourceQuota stops counting them. A `ReplicaFailure` condition message (e.g. `exceeded quota`) is shown in the log. `ProgressDeadlineExceeded` is only logged as a warning; `-timeout` is the only deadline. kubectl errors are retried; the Deployment fails only after 3 consecutive errors.
 
 On exit, a summary lists ✅ succeeded / 💥 failed / ⏰ timed out / 🛑 canceled per Deployment. SIGINT/SIGTERM (e.g. GitLab job cancel) cancels the wait and prints the summary.
 
