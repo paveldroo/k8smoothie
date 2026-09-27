@@ -126,8 +126,8 @@ func TestWatchKicksWhileStuck(t *testing.T) {
 	if got := f.kickCount("app"); got != 3 {
 		t.Fatalf("kicks %d, want 3", got)
 	}
-	if !strings.Contains(out.String(), "[app] ") {
-		t.Fatalf("missing log prefix: %s", out.String())
+	if strings.Contains(out.String(), "[app] ") {
+		t.Fatalf("unexpected log prefix: %s", out.String())
 	}
 }
 
@@ -299,5 +299,19 @@ func TestWaitAllTimeoutMixed(t *testing.T) {
 	results := watcher(f, &bytes.Buffer{}).WaitAll(ctx, []string{"done", "stuck"})
 	if results[0].Status != Succeeded || results[1].Status != TimedOut {
 		t.Fatalf("results %+v", results)
+	}
+}
+
+func TestWaitAllPrefix(t *testing.T) {
+	f := newFake(map[string][]snapshot{"a": {doneSnap("a")}, "b": {doneSnap("b")}})
+	var out bytes.Buffer
+	watcher(f, &out).WaitAll(context.Background(), []string{"a", "b"})
+	if !strings.Contains(out.String(), "[a] ") || !strings.Contains(out.String(), "[b] ") {
+		t.Fatalf("missing log prefix: %s", out.String())
+	}
+	out.Reset()
+	watcher(f, &out).WaitAll(context.Background(), []string{"a"})
+	if strings.Contains(out.String(), "[a] ") {
+		t.Fatalf("unexpected log prefix: %s", out.String())
 	}
 }
