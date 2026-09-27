@@ -2,6 +2,7 @@ package rollout
 
 import (
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/paveldroo/k8smoothie/internal/kube"
@@ -42,14 +43,14 @@ func mkRS(d kube.Deployment, rev string) kube.ReplicaSet {
 	}}
 }
 
-var podSeq int
+var podSeq atomic.Int64
 
 func mkPod(rs kube.ReplicaSet, phase string) kube.Pod {
-	podSeq++
+	n := podSeq.Add(1)
 	return kube.Pod{
 		Metadata: kube.ObjectMeta{
-			Name:            fmt.Sprintf("%s-pod%d", rs.Metadata.Name, podSeq),
-			UID:             fmt.Sprintf("pod-%d", podSeq),
+			Name:            fmt.Sprintf("%s-pod%d", rs.Metadata.Name, n),
+			UID:             fmt.Sprintf("pod-%d", n),
 			OwnerReferences: []kube.OwnerReference{{Kind: "ReplicaSet", UID: rs.Metadata.UID}},
 		},
 		Status: kube.PodStatus{Phase: phase},
@@ -65,8 +66,17 @@ func pods(rs kube.ReplicaSet, phase string, n int) []kube.Pod {
 }
 
 func terminating(p kube.Pod) kube.Pod {
-	now := time.Now()
-	p.Metadata.DeletionTimestamp = &now
+	return deleted(p, time.Now().Add(60*time.Second))
+}
+
+func staleTerminating(p kube.Pod) kube.Pod {
+	return deleted(p, time.Now().Add(-10*time.Minute))
+}
+
+func deleted(p kube.Pod, at time.Time) kube.Pod {
+	grace := int64(60)
+	p.Metadata.DeletionTimestamp = &at
+	p.Metadata.DeletionGracePeriodSeconds = &grace
 	return p
 }
 

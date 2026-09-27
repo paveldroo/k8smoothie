@@ -21,12 +21,13 @@ type OwnerReference struct {
 }
 
 type ObjectMeta struct {
-	Name              string            `json:"name"`
-	UID               string            `json:"uid"`
-	Generation        int64             `json:"generation"`
-	Annotations       map[string]string `json:"annotations"`
-	OwnerReferences   []OwnerReference  `json:"ownerReferences"`
-	DeletionTimestamp *time.Time        `json:"deletionTimestamp"`
+	Name                       string            `json:"name"`
+	UID                        string            `json:"uid"`
+	Generation                 int64             `json:"generation"`
+	Annotations                map[string]string `json:"annotations"`
+	OwnerReferences            []OwnerReference  `json:"ownerReferences"`
+	DeletionTimestamp          *time.Time        `json:"deletionTimestamp"`
+	DeletionGracePeriodSeconds *int64            `json:"deletionGracePeriodSeconds"`
 }
 
 // OwnedBy reports whether the object has an owner reference with the given uid.
@@ -48,6 +49,7 @@ type LabelSelector struct {
 
 type DeploymentSpec struct {
 	Replicas *int32        `json:"replicas"`
+	Paused   bool          `json:"paused"`
 	Selector LabelSelector `json:"selector"`
 }
 
@@ -67,6 +69,7 @@ type DeploymentStatus struct {
 }
 
 type Deployment struct {
+	Kind     string           `json:"kind"`
 	Metadata ObjectMeta       `json:"metadata"`
 	Spec     DeploymentSpec   `json:"spec"`
 	Status   DeploymentStatus `json:"status"`

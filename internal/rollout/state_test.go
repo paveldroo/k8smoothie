@@ -1,7 +1,9 @@
 package rollout
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/paveldroo/k8smoothie/internal/kube"
 )
@@ -174,7 +176,7 @@ func TestEvaluate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			v := Evaluate(tt.d, tt.rs, tt.pods)
+			v := Evaluate(tt.d, tt.rs, tt.pods, time.Now())
 			if v.State != tt.want {
 				t.Fatalf("state %s, want %s (reason: %s)", v.State, tt.want, v.Reason)
 			}
@@ -188,10 +190,41 @@ func TestEvaluate(t *testing.T) {
 	}
 }
 
+func TestEvaluateStuckTerminatingPastGraceKicks(t *testing.T) {
+	d := mkDeploy("app", 2, 2, counts{3, 3, 0, 0})
+	old := mkRS(d, "1")
+	v := Evaluate(d, []kube.ReplicaSet{old, mkRS(d, "2")}, []kube.Pod{staleTerminating(mkPod(old, kube.PodRunning))}, time.Now())
+	if v.State != StateKick || !strings.Contains(v.Reason, "past grace period") {
+		t.Fatalf("state %s reason %q", v.State, v.Reason)
+	}
+}
+
+func TestEvaluatePausedFails(t *testing.T) {
+	d := mkDeploy("app", 2, 2, counts{3, 3, 1, 1})
+	d.Spec.Paused = true
+	if v := Evaluate(d, nil, nil, time.Now()); v.State != StateFailed {
+		t.Fatalf("state %s, want failed", v.State)
+	}
+	done := mkDeploy("app", 2, 2, counts{3, 3, 3, 3})
+	done.Spec.Paused = true
+	if v := Evaluate(done, nil, nil, time.Now()); v.State != StateDone {
+		t.Fatalf("paused but rolled out: state %s, want done", v.State)
+	}
+}
+
+func TestEvaluateReplicaFailureInReason(t *testing.T) {
+	d := mkDeploy("app", 2, 2, counts{3, 0, 0, 0})
+	d.Status.Conditions = []kube.DeploymentCondition{{Type: "ReplicaFailure", Status: "True", Reason: "FailedCreate", Message: "exceeded quota: max-pods"}}
+	v := Evaluate(d, []kube.ReplicaSet{mkRS(d, "2")}, nil, time.Now())
+	if v.State != StateKick || !strings.Contains(v.Reason, "exceeded quota: max-pods") {
+		t.Fatalf("state %s reason %q", v.State, v.Reason)
+	}
+}
+
 func TestEvaluateNilReplicasDefaultsToOne(t *testing.T) {
 	d := mkDeploy("x", 1, 1, counts{0, 1, 1, 1})
 	d.Spec.Replicas = nil
-	if v := Evaluate(d, nil, nil); v.State != StateDone {
+	if v := Evaluate(d, nil, nil, time.Now()); v.State != StateDone {
 		t.Fatalf("state %s, want done", v.State)
 	}
 }

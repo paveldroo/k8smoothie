@@ -11,7 +11,7 @@
 </p>
 <br>
 
-A lightweight library to **automate and unblock Kubernetes deployments** when running into **quota limits during long graceful shutdowns**.
+A lightweight CLI tool to **automate and unblock Kubernetes deployments** when running into **quota limits during long graceful shutdowns**.
 
 ### Problem
 
@@ -27,7 +27,7 @@ Deployments can **get stuck** because:
 
 ### Solution
 
-This library monitors deployments and ReplicaSets, detects when pods are fully terminated and quota becomes available, and automatically nudges the deployment to resume scheduling new pods.
+This tool monitors deployments and ReplicaSets, detects when pods are fully terminated and quota becomes available, and automatically nudges the deployment to resume scheduling new pods.
 
 ### Features
 
@@ -62,8 +62,8 @@ All targets are watched concurrently under one overall `-timeout`. Both `-flag` 
 | -deployment | Comma-separated Deployment names (explicit mode) | one of `-deployment` / `-helm-release` | — |
 | -helm-release | Helm release name; auto-discovers its Deployments. Mutually exclusive with `-deployment` | one of `-deployment` / `-helm-release` | — |
 | -timeout | Overall deadline for all targets, Go duration (`90s`, `30m`, `1h`). `0` = no timeout | ❌ No | 0 |
-| -frequency | Polling interval in seconds | ❌ No | 5 |
-| -error-exit-code | Exit code on rollout failure, timeout, cancel, kubectl or discovery error | ❌ No | 1 |
+| -frequency | Polling interval in seconds (1..3600) | ❌ No | 5 |
+| -error-exit-code | Exit code (0..255) on rollout failure, timeout, cancel, kubectl or discovery error | ❌ No | 1 |
 | -version | Print version and exit | ❌ No | — |
 
 ### How it works
@@ -76,10 +76,11 @@ For each Deployment, every `-frequency` seconds:
   - `status.replicas == status.updatedReplicas`
   - `status.availableReplicas == status.updatedReplicas`
 - **Failed** when a pod of the current ReplicaSet has a container or init container waiting with `CrashLoopBackOff`, `ImagePullBackOff`, `InvalidImageName` or `CreateContainerConfigError`. Terminal pods (e.g. `Evicted`) and pods of old ReplicaSets are ignored.
+- **Failed** when the Deployment is paused (`spec.paused`) and not rolled out.
 - **Kick** (annotate the Deployment with `last-activated=<time>`) when not done, no owned pod is terminating and no pod of the current ReplicaSet is Pending — including when there are zero pods. This makes the controller retry creating pods right away instead of waiting out its backoff after quota errors.
 - Otherwise **wait**.
 
-ReplicaSets and pods are matched by `ownerReferences` uid, not by name. `ProgressDeadlineExceeded` is only logged as a warning; `-timeout` is the only deadline.
+ReplicaSets and pods are matched by `ownerReferences` uid, not by name. Pods stuck terminating past `deletionTimestamp + deletionGracePeriodSeconds` (e.g. on a lost node) no longer block the kick, matching how ResourceQuota stops counting them. A `ReplicaFailure` condition message (e.g. `exceeded quota`) is shown in the log. `ProgressDeadlineExceeded` is only logged as a warning; `-timeout` is the only deadline.
 
 On exit, a summary lists ✅ succeeded / 💥 failed / ⏰ timed out / 🛑 canceled per Deployment. SIGINT/SIGTERM (e.g. GitLab job cancel) cancels the wait and prints the summary.
 

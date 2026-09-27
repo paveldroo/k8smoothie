@@ -108,6 +108,47 @@ func TestKubectlListPods(t *testing.T) {
 	}
 }
 
+func TestGetDeploymentRejectsUnexpectedObject(t *testing.T) {
+	k, _ := fakeKubectl(t, `echo '{"kind":"List","items":[]}'`+"\n")
+	if _, err := k.GetDeployment(context.Background(), "ns", "x"); err == nil {
+		t.Fatal("expected error for List response")
+	}
+	k, _ = fakeKubectl(t, `echo '{"kind":"Deployment","metadata":{"name":"x"}}'`+"\n")
+	if _, err := k.GetDeployment(context.Background(), "ns", "x"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAnnotateArgs(t *testing.T) {
+	k, argsFile := fakeKubectl(t, "")
+	if err := k.Annotate(context.Background(), "ns", "d", "last-activated", "t"); err != nil {
+		t.Fatal(err)
+	}
+	args, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(string(args)), "-n ns annotate deployment d last-activated=t --overwrite"; got != want {
+		t.Fatalf("args %q, want %q", got, want)
+	}
+}
+
+func TestValidNames(t *testing.T) {
+	for _, s := range []string{"a", "speech-gp-stt-endpointer", "a.b-c", strings.Repeat("a", 253)} {
+		if !ValidName(s) {
+			t.Errorf("ValidName(%q) = false", s)
+		}
+	}
+	for _, s := range []string{"", "-lapp=x", "--all", "A", "a_b", "a-", strings.Repeat("a", 254)} {
+		if ValidName(s) {
+			t.Errorf("ValidName(%q) = true", s)
+		}
+	}
+	if !ValidNamespace("my-ns") || ValidNamespace("my.ns") || ValidNamespace("-n") || ValidNamespace(strings.Repeat("a", 64)) {
+		t.Error("unexpected ValidNamespace result")
+	}
+}
+
 func TestKubectlBadJSON(t *testing.T) {
 	k, _ := fakeKubectl(t, "echo not-json\n")
 	if _, err := k.ListDeployments(context.Background(), "ns"); err == nil {

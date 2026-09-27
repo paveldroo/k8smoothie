@@ -180,5 +180,5 @@ func (w Watcher) check(ctx context.Context, name string) (kube.Deployment, Verdi
 	if err != nil {
 		return d, Verdict{}, fmt.Errorf("list pods: %w", err)
 	}
-	return d, Evaluate(d, rs, pods), nil
+	return d, Evaluate(d, rs, pods, time.Now()), nil
 }

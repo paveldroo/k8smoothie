@@ -6,9 +6,28 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
+
+const waitDelay = 5 * time.Second
+
+var (
+	dns1123Label     = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+	dns1123Subdomain = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
+)
+
+// ValidNamespace reports whether s is a valid Kubernetes namespace name.
+func ValidNamespace(s string) bool {
+	return len(s) <= 63 && dns1123Label.MatchString(s)
+}
+
+// ValidName reports whether s is a valid Kubernetes object name.
+func ValidName(s string) bool {
+	return len(s) <= 253 && dns1123Subdomain.MatchString(s)
+}
 
 // Client is the subset of the Kubernetes API used by k8smoothie.
 type Client interface {
@@ -28,6 +47,9 @@ func (k Kubectl) GetDeployment(ctx context.Context, ns, name string) (Deployment
 	var d Deployment
 	if err := k.getJSON(ctx, &d, "-n", ns, "get", "deployment", name, "-o", "json"); err != nil {
 		return Deployment{}, err
+	}
+	if d.Kind != "Deployment" || d.Metadata.Name != name {
+		return Deployment{}, fmt.Errorf("kubectl get deployment %s: unexpected object kind=%q name=%q", name, d.Kind, d.Metadata.Name)
 	}
 	return d, nil
 }
@@ -79,6 +101,7 @@ func (k Kubectl) run(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, k.bin(), args...)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	cmd.WaitDelay = waitDelay
 	if err := cmd.Run(); err != nil {
 		call := k.bin() + " " + strings.Join(args, " ")
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/paveldroo/k8smoothie/internal/kube"
 )
@@ -46,7 +47,8 @@ var fatalWaitingReasons = map[string]bool{
 
 // Evaluate decides the rollout state of d from its ReplicaSets and pods.
 // rsList and pods may contain unrelated objects; ownership is checked by uid.
-func Evaluate(d kube.Deployment, rsList []kube.ReplicaSet, pods []kube.Pod) Verdict {
+// Pods past their deletion grace period no longer count as terminating.
+func Evaluate(d kube.Deployment, rsList []kube.ReplicaSet, pods []kube.Pod, now time.Time) Verdict {
 	v := Verdict{Warning: progressWarning(d)}
 	st := d.Status
 
@@ -58,6 +60,12 @@ func Evaluate(d kube.Deployment, rsList []kube.ReplicaSet, pods []kube.Pod) Verd
 	if st.UpdatedReplicas == d.DesiredReplicas() && st.Replicas == st.UpdatedReplicas && st.AvailableReplicas == st.UpdatedReplicas {
 		v.State = StateDone
 		v.Reason = fmt.Sprintf("%d of %d replicas updated and available", st.AvailableReplicas, d.DesiredReplicas())
+		return v
+	}
+
+	if d.Spec.Paused {
+		v.State = StateFailed
+		v.Reason = "deployment is paused"
 		return v
 	}
 
@@ -74,7 +82,7 @@ func Evaluate(d kube.Deployment, rsList []kube.ReplicaSet, pods []kube.Pod) Verd
 		}
 	}
 
-	var terminating, pending, terminal, old int
+	var terminating, pending, terminal, old, stale int
 	for _, p := range pods {
 		if !ownedByAny(p.Metadata, owned) {
 			continue
@@ -84,7 +92,11 @@ func Evaluate(d kube.Deployment, rsList []kube.ReplicaSet, pods []kube.Pod) Verd
 			continue
 		}
 		if p.Metadata.DeletionTimestamp != nil {
-			terminating++
+			if stillTerminating(p.Metadata, now) {
+				terminating++
+			} else {
+				stale++
+			}
 			continue
 		}
 		if !p.Metadata.OwnedBy(current) {
@@ -110,7 +122,7 @@ func Evaluate(d kube.Deployment, rsList []kube.ReplicaSet, pods []kube.Pod) Verd
 		v.State = StateKick
 		v.Reason = "no terminating or pending pods"
 	}
-	v.Reason += ignoredSuffix(terminal, old)
+	v.Reason += replicaFailure(d) + ignoredSuffix(terminal, old, stale)
 	return v
 }
 
@@ -136,6 +148,23 @@ func fatalReason(p kube.Pod) string {
 	return ""
 }
 
+func replicaFailure(d kube.Deployment) string {
+	for _, c := range d.Status.Conditions {
+		if c.Type == "ReplicaFailure" && c.Status == "True" {
+			return "; ReplicaFailure: " + c.Message
+		}
+	}
+	return ""
+}
+
+func stillTerminating(m kube.ObjectMeta, now time.Time) bool {
+	var grace time.Duration
+	if m.DeletionGracePeriodSeconds != nil {
+		grace = time.Duration(*m.DeletionGracePeriodSeconds) * time.Second
+	}
+	return now.Before(m.DeletionTimestamp.Add(grace))
+}
+
 func progressWarning(d kube.Deployment) string {
 	for _, c := range d.Status.Conditions {
 		if c.Type == "Progressing" && c.Reason == "ProgressDeadlineExceeded" {
@@ -145,8 +174,11 @@ func progressWarning(d kube.Deployment) string {
 	return ""
 }
 
-func ignoredSuffix(terminal, old int) string {
+func ignoredSuffix(terminal, old, stale int) string {
 	var parts []string
+	if stale > 0 {
+		parts = append(parts, fmt.Sprintf("%d stuck terminating past grace period", stale))
+	}
 	if terminal > 0 {
 		parts = append(parts, fmt.Sprintf("%d terminal", terminal))
 	}

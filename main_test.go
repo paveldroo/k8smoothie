@@ -59,6 +59,13 @@ func stuckDeploy(name, release string) kube.Deployment {
 	return d
 }
 
+func deletingDeploy(name, release string) kube.Deployment {
+	d := stuckDeploy(name, release)
+	now := time.Now()
+	d.Metadata.DeletionTimestamp = &now
+	return d
+}
+
 func runT(t *testing.T, client kube.Client, args ...string) (int, string) {
 	t.Helper()
 	var out bytes.Buffer
@@ -77,10 +84,15 @@ func TestUsageErrorsExit2(t *testing.T) {
 		"bad timeout":      {"-namespace=ns", "-deployment=a", "-timeout=5"},
 		"unknown flag":     {"-namespace=ns", "-deployment=a", "-nope"},
 		"positional":       {"-namespace=ns", "-deployment=a", "extra"},
+		"flag injection":   {"-namespace=ns", "-deployment=-lapp=x"},
+		"bad namespace":    {"-namespace=-lx", "-deployment=a"},
+		"exit code 256":    {"-namespace=ns", "-deployment=a", "-error-exit-code=256"},
+		"exit code -1":     {"-namespace=ns", "-deployment=a", "-error-exit-code=-1"},
+		"huge frequency":   {"-namespace=ns", "-deployment=a", "-frequency=9999999999999"},
 	}
 	for name, args := range tests {
 		t.Run(name, func(t *testing.T) {
-			code, out := runT(t, fakeClient{}, append(args, "-error-exit-code=0")...)
+			code, out := runT(t, fakeClient{}, append([]string{"-error-exit-code=0"}, args...)...)
 			if code != usageExitCode {
 				t.Fatalf("code %d, want %d: %s", code, usageExitCode, out)
 			}
@@ -100,6 +112,7 @@ func TestHelmReleaseDiscovery(t *testing.T) {
 		doneDeploy("speech-gp-stt-endpointer", "speech-gp-stt"),
 		doneDeploy("speech-gp-stt-endpointer-heavy", "speech-gp-stt"),
 		stuckDeploy("foreign", "other"),
+		deletingDeploy("speech-gp-stt-old", "speech-gp-stt"),
 	}}
 	code, out := runT(t, c, "-namespace=ns", "--helm-release=speech-gp-stt", "-frequency=1")
 	if code != 0 {
@@ -110,7 +123,7 @@ func TestHelmReleaseDiscovery(t *testing.T) {
 			t.Fatalf("missing %q in:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "foreign") {
+	if strings.Contains(out, "foreign") || strings.Contains(out, "speech-gp-stt-old") {
 		t.Fatalf("foreign deployment watched:\n%s", out)
 	}
 }

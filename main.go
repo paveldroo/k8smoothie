@@ -19,7 +19,10 @@ import (
 
 var version = "dev"
 
-const usageExitCode = 2
+const (
+	usageExitCode = 2
+	maxFrequency  = 3600
+)
 
 type config struct {
 	namespace     string
@@ -33,6 +36,7 @@ type config struct {
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	context.AfterFunc(ctx, stop)
 	code := run(ctx, os.Args[1:], os.Stdout, os.Stderr, kube.Kubectl{})
 	stop()
 	os.Exit(code)
@@ -119,12 +123,16 @@ func parseFlags(args []string, stderr io.Writer) (config, error) {
 		return cfg, fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
 	case cfg.namespace == "":
 		return cfg, errors.New("-namespace is required")
+	case !kube.ValidNamespace(cfg.namespace):
+		return cfg, fmt.Errorf("-namespace %q is not a valid namespace name", cfg.namespace)
 	case *deployments == "" && cfg.release == "":
 		return cfg, errors.New("one of -deployment or -helm-release is required")
 	case *deployments != "" && cfg.release != "":
 		return cfg, errors.New("-deployment and -helm-release are mutually exclusive")
-	case *frequency <= 0:
-		return cfg, errors.New("-frequency must be positive")
+	case *frequency <= 0 || *frequency > maxFrequency:
+		return cfg, fmt.Errorf("-frequency must be between 1 and %d seconds", maxFrequency)
+	case *errorExitCode < 0 || *errorExitCode > 255:
+		return cfg, errors.New("-error-exit-code must be between 0 and 255")
 	case cfg.timeout < 0:
 		return cfg, errors.New("-timeout must not be negative")
 	}
@@ -147,6 +155,9 @@ func splitNames(s string) ([]string, error) {
 		if n == "" {
 			return nil, fmt.Errorf("-deployment has an empty name: %q", s)
 		}
+		if !kube.ValidName(n) {
+			return nil, fmt.Errorf("-deployment %q is not a valid deployment name", n)
+		}
 		if !seen[n] {
 			seen[n] = true
 			names = append(names, n)
@@ -162,6 +173,9 @@ func discover(ctx context.Context, client kube.Client, ns, release string) ([]st
 	}
 	var names []string
 	for _, d := range kube.FilterByRelease(deps, release) {
+		if d.Metadata.DeletionTimestamp != nil {
+			continue
+		}
 		names = append(names, d.Metadata.Name)
 	}
 	if len(names) == 0 {
