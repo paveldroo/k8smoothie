@@ -68,7 +68,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, client ku
 
 	targets := cfg.deployments
 	if cfg.release != "" {
-		targets, err = discover(ctx, client, cfg, stdout)
+		targets, err = discover(ctx, client, cfg)
 		if err != nil {
 			fmt.Fprintf(stdout, "💥 %s\n", err)
 			return cfg.errorExitCode
@@ -170,7 +170,7 @@ func splitNames(s string) ([]string, error) {
 	return names, nil
 }
 
-func discover(ctx context.Context, client kube.Client, cfg config, out io.Writer) ([]string, error) {
+func discover(ctx context.Context, client kube.Client, cfg config) ([]string, error) {
 	ns, release := cfg.namespace, cfg.release
 	var deps []kube.Deployment
 	for attempt := 1; ; attempt++ {
@@ -182,7 +182,6 @@ func discover(ctx context.Context, client kube.Client, cfg config, out io.Writer
 		if ctx.Err() != nil || attempt >= rollout.MaxConsecutiveErrors {
 			return nil, fmt.Errorf("discover deployments: %w", err)
 		}
-		fmt.Fprintf(out, "🙈 discover deployments: %s (%d/%d consecutive errors)\n", err, attempt, rollout.MaxConsecutiveErrors)
 		select {
 		case <-ctx.Done():
 			return nil, fmt.Errorf("discover deployments: %w", ctx.Err())

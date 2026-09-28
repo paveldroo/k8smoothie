@@ -189,7 +189,7 @@ func TestDiscoveryRetries(t *testing.T) {
 	errs := 2
 	c := fakeClient{deps: []kube.Deployment{doneDeploy("a", "r")}, listErrs: &errs}
 	code, out := runT(t, c, "-namespace=ns", "-helm-release=r")
-	if code != 0 || !strings.Contains(out, "2/3 consecutive errors") || !strings.Contains(out, "✅ a:") {
+	if code != 0 || strings.Contains(out, "consecutive errors") || !strings.Contains(out, "✅ a:") {
 		t.Fatalf("code %d: %s", code, out)
 	}
 	errs = 3

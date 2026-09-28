@@ -1,7 +1,6 @@
 package rollout
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/paveldroo/k8smoothie/internal/kube"
@@ -194,7 +193,7 @@ func TestEvaluate(t *testing.T) {
 			if v.State != tt.want {
 				t.Fatalf("state %s, want %s (reason: %s)", v.State, tt.want, v.Reason)
 			}
-			if v.Reason == "" {
+			if (v.State == StateDone || v.State == StateFailed) && v.Reason == "" {
 				t.Fatal("empty reason")
 			}
 			if (v.Warning != "") != tt.warning {
@@ -214,15 +213,6 @@ func TestEvaluatePausedFails(t *testing.T) {
 	done.Spec.Paused = true
 	if v := Evaluate(done, nil, nil); v.State != StateDone {
 		t.Fatalf("paused but rolled out: state %s, want done", v.State)
-	}
-}
-
-func TestEvaluateReplicaFailureInReason(t *testing.T) {
-	d := mkDeploy("app", 2, 2, counts{3, 0, 0, 0})
-	d.Status.Conditions = []kube.DeploymentCondition{{Type: "ReplicaFailure", Status: "True", Reason: "FailedCreate", Message: "exceeded quota: max-pods"}}
-	v := Evaluate(d, []kube.ReplicaSet{withReplicas(mkRS(d, "2"), 3)}, nil)
-	if v.State != StateKick || !strings.Contains(v.Reason, "exceeded quota: max-pods") {
-		t.Fatalf("state %s reason %q", v.State, v.Reason)
 	}
 }
 

@@ -59,7 +59,7 @@ func Evaluate(d kube.Deployment, rsList []kube.ReplicaSet, pods []kube.Pod) Verd
 
 	if st.UpdatedReplicas == d.DesiredReplicas() && st.Replicas == st.UpdatedReplicas && st.AvailableReplicas == st.UpdatedReplicas {
 		v.State = StateDone
-		v.Reason = fmt.Sprintf("%d of %d replicas updated and available", st.AvailableReplicas, d.DesiredReplicas())
+		v.Reason = fmt.Sprintf("%d of %d pods updated and available", st.AvailableReplicas, d.DesiredReplicas())
 		return v
 	}
 
@@ -85,22 +85,15 @@ func Evaluate(d kube.Deployment, rsList []kube.ReplicaSet, pods []kube.Pod) Verd
 		}
 	}
 
-	var terminating, pending, terminal, old int
 	var live int32
 	for _, p := range pods {
 		if !ownedByAny(p.Metadata, owned) {
 			continue
 		}
 		if p.Status.Phase == kube.PodFailed || p.Status.Phase == kube.PodSucceeded {
-			terminal++
 			continue
 		}
-		if p.Metadata.DeletionTimestamp != nil {
-			terminating++
-			continue
-		}
-		if !p.Metadata.OwnedBy(current) {
-			old++
+		if p.Metadata.DeletionTimestamp != nil || !p.Metadata.OwnedBy(current) {
 			continue
 		}
 		if key, reason := fatalReason(p); key != "" {
@@ -110,9 +103,6 @@ func Evaluate(d kube.Deployment, rsList []kube.ReplicaSet, pods []kube.Pod) Verd
 			return v
 		}
 		live++
-		if p.Status.Phase == kube.PodPending {
-			pending++
-		}
 	}
 
 	switch {
@@ -121,11 +111,7 @@ func Evaluate(d kube.Deployment, rsList []kube.ReplicaSet, pods []kube.Pod) Verd
 		v.Reason = "current replicaset not found"
 	case live < currentDesired:
 		v.State = StateKick
-		v.Reason = fmt.Sprintf("current replicaset has %d of %d pods", live, currentDesired)
-	default:
-		v.Reason = fmt.Sprintf("current replicaset has all %d pods, waiting for them to become available", live)
 	}
-	v.Reason += activitySuffix(terminating, pending) + replicaFailure(d) + ignoredSuffix(terminal, old)
 	return v
 }
 
@@ -152,29 +138,6 @@ func fatalReason(p kube.Pod) (key, reason string) {
 	return "", ""
 }
 
-func replicaFailure(d kube.Deployment) string {
-	for _, c := range d.Status.Conditions {
-		if c.Type == "ReplicaFailure" && c.Status == "True" {
-			return "; ReplicaFailure: " + oneLine(c.Message)
-		}
-	}
-	return ""
-}
-
-func activitySuffix(terminating, pending int) string {
-	var parts []string
-	if terminating > 0 {
-		parts = append(parts, fmt.Sprintf("%d terminating", terminating))
-	}
-	if pending > 0 {
-		parts = append(parts, fmt.Sprintf("%d pending", pending))
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return "; " + strings.Join(parts, ", ")
-}
-
 func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
@@ -186,18 +149,4 @@ func progressWarning(d kube.Deployment) string {
 		}
 	}
 	return ""
-}
-
-func ignoredSuffix(terminal, old int) string {
-	var parts []string
-	if terminal > 0 {
-		parts = append(parts, fmt.Sprintf("%d terminal", terminal))
-	}
-	if old > 0 {
-		parts = append(parts, fmt.Sprintf("%d from old replicasets", old))
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return " (ignored pods: " + strings.Join(parts, ", ") + ")"
 }

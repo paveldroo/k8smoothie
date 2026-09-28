@@ -51,6 +51,20 @@ check() {
 	pass "$name"
 }
 
+# absent NAME LOGFILE [PATTERN...]
+absent() {
+	local name=$1 out=$2
+	shift 2
+	local p
+	for p in "$@"; do
+		if grep -qF -- "$p" "$out"; then
+			fail "$name" "unexpected '$p' in output" "$out"
+			return
+		fi
+	done
+	pass "$name"
+}
+
 # run_case NAME WANT_CODE [PATTERN...] -- K8SMOOTHIE_ARGS...
 run_case() {
 	local name=$1 want=$2
@@ -121,7 +135,9 @@ cases_discovery() {
 	log "discovery and missing objects"
 	run_case "helm-release with no deployments" 1 "no deployments found" -- -namespace="$NS" -helm-release=e2e-nope
 	run_case "helm-release exact match, heavy not picked by prefix" 1 "no deployments found" -- -namespace="$NS" -helm-release=gracefulapp-h
-	run_case "missing deployment fails after 3 errors" 1 "2/3 consecutive errors" "💥 e2e-missing:" "NotFound" -- -namespace="$NS" -deployment=e2e-missing -frequency=1
+	local name="missing deployment fails after 3 errors"
+	run_case "$name" 1 "💥 e2e-missing:" "NotFound" -- -namespace="$NS" -deployment=e2e-missing -frequency=1
+	absent "$name: retries not logged" "$(logfile "$name")" "consecutive errors"
 }
 
 cases_idle() {
@@ -131,11 +147,7 @@ cases_idle() {
 	k annotate deployment "$HEAVY" meta.helm.sh/release-namespace=e2e-other --overwrite >/dev/null
 	local name="helm-release skips other release-namespace"
 	run_case "$name" 0 "✅ $MAIN:" -- -namespace="$NS" -helm-release="$RELEASE" -timeout=1m
-	if grep -qF "$HEAVY" "$(logfile "$name")"; then
-		fail "$name: $HEAVY not watched" "$HEAVY picked up despite foreign release-namespace" "$(logfile "$name")"
-	else
-		pass "$name: $HEAVY not watched"
-	fi
+	absent "$name: $HEAVY not watched" "$(logfile "$name")" "$HEAVY"
 	k annotate deployment "$HEAVY" meta.helm.sh/release-namespace="$NS" --overwrite >/dev/null
 }
 
@@ -147,7 +159,9 @@ cases_rollout() {
 		-namespace="$NS" -helm-release="$RELEASE" -frequency="$FREQ" -timeout="$ROLLOUT_TIMEOUT"
 	local kicks
 	kicks=$(grep -c '🥾' "$(logfile "$name")")
-	printf '     kicks: %s (while other pods terminating: %s)\n' "$kicks" "$(grep '🥾' "$(logfile "$name")" | grep -c terminating)"
+	printf '     kicks: %s\n' "$kicks"
+	check "$name: simple progress log" 0 0 "$(logfile "$name")" "⏳" "pods updated, rollout in progress"
+	absent "$name: no verbose log" "$(logfile "$name")" "🤔" "replicaset has" "ReplicaFailure"
 	if [ "$kicks" -gt 0 ]; then
 		pass "quota-blocked rollout was kicked"
 	else
@@ -168,8 +182,10 @@ cases_crashloop() {
 	log "CrashLoopBackOff in $HEAVY"
 	k patch deployment "$HEAVY" --type=json \
 		-p '[{"op":"add","path":"/spec/template/spec/containers/0/env","value":[{"name":"CRASH","value":"1"}]}]' >/dev/null
-	run_case "crashloop fails with error-exit-code" 1 "💥 $HEAVY:" "CrashLoopBackOff" "✅ $MAIN:" -- \
+	local name="crashloop fails with error-exit-code"
+	run_case "$name" 1 "💥 $HEAVY:" "CrashLoopBackOff" "✅ $MAIN:" -- \
 		-namespace="$NS" -helm-release="$RELEASE" -frequency="$FREQ" -timeout=5m
+	absent "$name: confirmation not logged" "$(logfile "$name")" "confirming on next check"
 	run_case "crashloop log-only with error-exit-code=0" 0 "💥 $HEAVY:" "CrashLoopBackOff" -- \
 		-namespace="$NS" -helm-release="$RELEASE" -frequency="$FREQ" -timeout=5m -error-exit-code=0
 	bump "$MAIN"
@@ -183,8 +199,10 @@ cases_imagepull() {
 	k patch deployment "$HEAVY" --type=json -p '[
 		{"op":"replace","path":"/spec/template/spec/containers/0/image","value":"localhost:5999/e2e-nope:missing"},
 		{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]' >/dev/null
-	run_case "image pull backoff fails" 1 "💥 $HEAVY:" "ImagePullBackOff" -- \
+	local name="image pull backoff fails"
+	run_case "$name" 1 "💥 $HEAVY:" "ImagePullBackOff" -- \
 		-namespace="$NS" -deployment="$HEAVY" -frequency="$FREQ" -timeout=5m
+	absent "$name: confirmation not logged" "$(logfile "$name")" "confirming on next check"
 	undo "$HEAVY"
 }
 
