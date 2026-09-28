@@ -46,4 +46,4 @@ tasks:
 
   e2e:
     cmds:
-      - ./scripts/e2e.sh
+      - ./tests/e2e.sh

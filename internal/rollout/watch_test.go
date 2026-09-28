@@ -175,8 +175,8 @@ func TestWatchToleratesTransientErrors(t *testing.T) {
 	if r.Status != Succeeded {
 		t.Fatalf("status %s: %s", r.Status, r.Reason)
 	}
-	if !strings.Contains(out.String(), "2/3 consecutive errors") {
-		t.Fatalf("missing error log:\n%s", out.String())
+	if strings.Contains(out.String(), "consecutive errors") || strings.Contains(out.String(), "🙈") {
+		t.Fatalf("transient errors logged:\n%s", out.String())
 	}
 }
 
@@ -195,8 +195,20 @@ func TestWatchFailureNeedsConfirmation(t *testing.T) {
 	if r.Status != Succeeded {
 		t.Fatalf("status %s: %s", r.Status, r.Reason)
 	}
-	if !strings.Contains(out.String(), "confirming on next check") {
-		t.Fatalf("missing confirmation log:\n%s", out.String())
+	if strings.Contains(out.String(), "CrashLoopBackOff") || strings.Contains(out.String(), "confirming") {
+		t.Fatalf("unconfirmed failure logged:\n%s", out.String())
+	}
+}
+
+func TestWatchConfirmedFailureLogsReasonOnce(t *testing.T) {
+	f := newFake(map[string][]snapshot{"app": {crashSnap("app"), crashSnap("app")}})
+	var out bytes.Buffer
+	r := watcher(f, &out).Watch(context.Background(), "app")
+	if r.Status != Failed || !strings.Contains(r.Reason, "CrashLoopBackOff") {
+		t.Fatalf("status %s reason %q", r.Status, r.Reason)
+	}
+	if n := strings.Count(out.String(), "CrashLoopBackOff"); n != 1 || !strings.Contains(out.String(), "💥 failed: pod ") {
+		t.Fatalf("want one 💥 line with reason, got %d:\n%s", n, out.String())
 	}
 }
 

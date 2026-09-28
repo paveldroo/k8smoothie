@@ -140,7 +140,6 @@ func (w Watcher) Watch(ctx context.Context, name string) Result {
 			if errStreak >= MaxConsecutiveErrors {
 				return finish(Failed, err.Error())
 			}
-			logger.Printf("🙈 %s (%d/%d consecutive errors)", err, errStreak, MaxConsecutiveErrors)
 		} else {
 			errStreak = 0
 			if v.Warning != "" && !warned {
@@ -162,13 +161,11 @@ func (w Watcher) Watch(ctx context.Context, name string) Result {
 				if failStreak >= failConfirmations {
 					return finish(Failed, v.Reason)
 				}
-				logger.Printf("🤨 %s, confirming on next check", v.Reason)
 			case StateKick:
 				if !lastKick.IsZero() && time.Since(lastKick) < w.KickInterval {
-					logger.Printf("🤔 %s, last kick %s ago", v.Reason, time.Since(lastKick).Round(time.Second))
 					break
 				}
-				logger.Printf("🥾 %s, let's kick the deployment a little", v.Reason)
+				logger.Printf("🥾 let's kick the deployment a little")
 				if kerr := w.Client.Annotate(ctx, w.Namespace, name, kickAnnotation, time.Now().Format(time.RFC3339Nano)); kerr != nil {
 					if ctx.Err() != nil {
 						return fromCtx()
@@ -177,11 +174,8 @@ func (w Watcher) Watch(ctx context.Context, name string) Result {
 				} else {
 					lastKick = time.Now()
 				}
-			default:
-				logger.Printf("🤔 %s", v.Reason)
 			}
-			st := d.Status
-			logger.Printf("⏳ updated/available/replicas: %d/%d/%d of %d desired", st.UpdatedReplicas, st.AvailableReplicas, st.Replicas, d.DesiredReplicas())
+			logger.Printf("⏳ %d of %d pods updated, rollout in progress...", d.Status.UpdatedReplicas, d.DesiredReplicas())
 		}
 
 		timer := time.NewTimer(w.Frequency)

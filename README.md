@@ -80,7 +80,7 @@ For each Deployment, every `-frequency` seconds:
 - **Kick** (annotate the Deployment with `last-activated=<time>`) when not done and the current ReplicaSet has fewer live pods than its `spec.replicas` (or does not exist yet) — including when there are zero pods, and regardless of other pods still terminating or pending, since the pod quota is shared by the whole namespace. This makes the controller retry creating pods right away instead of waiting out its backoff after quota errors. At most one kick per 15s; a failed kick (e.g. no `patch` permission) is logged and the wait continues. Pods that exist but are not yet Ready are waited for, not kicked.
 - Otherwise **wait**.
 
-ReplicaSets and pods are matched by `ownerReferences` uid, not by name. A `ReplicaFailure` condition message (e.g. `exceeded quota`) is shown in the log. `ProgressDeadlineExceeded` is only logged as a warning; `-timeout` is the only deadline. Every kubectl call has a 30s request timeout. kubectl errors, including during discovery, are retried; a Deployment fails only after 3 consecutive errors.
+ReplicaSets and pods are matched by `ownerReferences` uid, not by name. `ProgressDeadlineExceeded` is only logged as a warning; `-timeout` is the only deadline. Every kubectl call has a 30s request timeout. kubectl errors, including during discovery, are retried; a Deployment fails only after 3 consecutive errors. Intermediate errors and unconfirmed pod failures are not logged; only the final failure is.
 
 On exit, a summary lists ✅ succeeded / 💥 failed / ⏰ timed out / 🛑 canceled per Deployment. SIGINT/SIGTERM (e.g. GitLab job cancel) cancels the wait and prints the summary.
 
